@@ -10,9 +10,9 @@ async def parse_pdf(file_path: str) -> list[dict]:
         full_text += page.get_text() + "\n"
     doc.close()
 
-    # Отладка: выводим сырой текст из PDF в логи
-    print("[PARSER RAW TEXT]")
-    print(full_text[:3000])
+    # Отладка: выводим сырой текст из PDF в логи (полностью)
+    print("[PARSER RAW TEXT START]")
+    print(full_text)
     print("[PARSER RAW TEXT END]")
 
     lines = full_text.split("\n")
