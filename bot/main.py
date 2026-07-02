@@ -1,6 +1,11 @@
+import sys
+import os
+
+# Добавляем корень проекта в sys.path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import asyncio
 import logging
-import os
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -9,7 +14,6 @@ from bot.config import BOT_TOKEN, DATA_TEMP_DIR
 from bot.middlewares.access import AccessMiddleware
 from bot.handlers.user.start import router as user_start_router
 from bot.handlers.user.upload import router as user_upload_router
-from bot.handlers.user.deduction import router as user_deduction_router
 from bot.handlers.user.profile import router as user_profile_router
 from bot.handlers.admin.panel import router as admin_panel_router
 from bot.handlers.admin.access_mgmt import router as admin_access_router
@@ -38,7 +42,6 @@ async def main():
     # Подключаем роутеры
     dp.include_router(user_start_router)
     dp.include_router(user_upload_router)
-    dp.include_router(user_deduction_router)
     dp.include_router(user_profile_router)
     dp.include_router(admin_panel_router)
     dp.include_router(admin_access_router)
