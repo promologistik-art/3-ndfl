@@ -9,8 +9,7 @@ router = Router()
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message):
-    user: User = message.middleware_data.get("user")
+async def cmd_start(message: Message, user: User = None):
     if not user:
         await message.answer("Ошибка. Попробуйте позже.")
         return
@@ -26,8 +25,7 @@ async def cmd_start(message: Message):
 
 
 @router.callback_query(F.data == "menu_back")
-async def back_to_menu(callback: CallbackQuery):
-    user: User = callback.middleware_data.get("user")
+async def back_to_menu(callback: CallbackQuery, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return

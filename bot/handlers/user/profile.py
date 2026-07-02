@@ -9,8 +9,7 @@ router = Router()
 
 
 @router.callback_query(F.data == "menu_profile")
-async def show_profile(callback: CallbackQuery):
-    user: User = callback.middleware_data.get("user")
+async def show_profile(callback: CallbackQuery, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return
@@ -52,8 +51,7 @@ async def show_profile(callback: CallbackQuery):
 
 
 @router.callback_query(F.data == "history")
-async def show_history(callback: CallbackQuery):
-    user: User = callback.middleware_data.get("user")
+async def show_history(callback: CallbackQuery, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return

@@ -11,7 +11,6 @@ from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
 from core.generator.pdf_generator import generate_pdf
 from core.generator.xml_generator import generate_xml
-from sqlalchemy import select
 
 router = Router()
 
@@ -25,8 +24,7 @@ class UploadStates(StatesGroup):
 
 
 @router.callback_query(F.data == "menu_upload")
-async def start_upload(callback: CallbackQuery, state: FSMContext):
-    user: User = callback.middleware_data.get("user")
+async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return
@@ -48,8 +46,7 @@ async def start_upload(callback: CallbackQuery, state: FSMContext):
 
 
 @router.message(UploadStates.waiting_for_file, F.document)
-async def handle_file(message: Message, state: FSMContext):
-    user: User = message.middleware_data.get("user")
+async def handle_file(message: Message, state: FSMContext, user: User = None):
     if not user:
         await message.answer("Ошибка. Попробуйте позже.")
         return
@@ -116,8 +113,7 @@ async def handle_wrong_format(message: Message):
 
 
 @router.callback_query(F.data.startswith("deduction_"))
-async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext):
-    user: User = callback.middleware_data.get("user")
+async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return
@@ -250,8 +246,7 @@ async def manual_amount(message: Message, state: FSMContext):
 
 
 @router.callback_query(F.data == "confirm_yes")
-async def confirm_yes(callback: CallbackQuery, state: FSMContext):
-    user: User = callback.middleware_data.get("user")
+async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return
@@ -278,7 +273,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext):
         f"📆 Год: <b>{calculated['year']}</b>"
     )
 
-    # Сохраняем декларацию
     session = next(get_session())
     try:
         declaration = Declaration(
@@ -349,8 +343,7 @@ async def confirm_no(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("download_"))
-async def download_file(callback: CallbackQuery):
-    user: User = callback.middleware_data.get("user")
+async def download_file(callback: CallbackQuery, user: User = None):
     if not user:
         await callback.answer("Ошибка")
         return
