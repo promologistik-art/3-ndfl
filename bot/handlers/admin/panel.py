@@ -27,29 +27,28 @@ async def admin_stats(callback: CallbackQuery):
         await callback.answer("Доступ запрещён", show_alert=True)
         return
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        total_users = await session.scalar(select(func.count(User.id)))
-        demo_users = await session.scalar(
+        total_users = session.scalar(select(func.count(User.id)))
+        demo_users = session.scalar(
             select(func.count(User.id)).where(User.access_type == "demo")
         )
-        monthly_users = await session.scalar(
+        monthly_users = session.scalar(
             select(func.count(User.id)).where(User.access_type == "monthly")
         )
-        unlimited_users = await session.scalar(
+        unlimited_users = session.scalar(
             select(func.count(User.id)).where(User.access_type == "unlimited")
         )
-        total_declarations = await session.scalar(select(func.count(Declaration.id)))
-        generated = await session.scalar(
+        total_declarations = session.scalar(select(func.count(Declaration.id)))
+        generated = session.scalar(
             select(func.count(Declaration.id)).where(Declaration.status == "generated")
         )
-        calculated = await session.scalar(
+        calculated = session.scalar(
             select(func.count(Declaration.id)).where(Declaration.status == "calculated")
         )
-        total_payments = await session.scalar(select(func.sum(Payment.amount)))
+        total_payments = session.scalar(select(func.sum(Payment.amount)))
     finally:
-        await session.close()
+        session.close()
 
     text = (
         "📊 <b>Статистика</b>\n\n"
@@ -73,17 +72,16 @@ async def admin_logs(callback: CallbackQuery):
         await callback.answer("Доступ запрещён", show_alert=True)
         return
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        result = await session.execute(
+        result = session.execute(
             select(AdminLog)
             .order_by(AdminLog.created_at.desc())
             .limit(20)
         )
         logs = result.scalars().all()
     finally:
-        await session.close()
+        session.close()
 
     if not logs:
         text = "📋 Логов пока нет."

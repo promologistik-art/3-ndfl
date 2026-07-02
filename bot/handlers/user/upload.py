@@ -31,7 +31,6 @@ async def start_upload(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Ошибка")
         return
 
-    # Проверка лимитов
     if user.access_type == ACCESS_DEMO and user.declarations_used >= DEMO_LIMIT:
         await callback.answer("Лимит демо-доступа исчерпан (1 декларация)", show_alert=True)
         return
@@ -58,12 +57,10 @@ async def handle_file(message: Message, state: FSMContext):
     document = message.document
     file_name = document.file_name.lower()
 
-    # Проверка формата
     if not (file_name.endswith(".pdf") or file_name.endswith(".xlsx") or file_name.endswith(".xls")):
         await message.answer("❌ Поддерживаются только PDF и Excel файлы. Отправьте файл ещё раз.")
         return
 
-    # Скачиваем файл
     os.makedirs(DATA_TEMP_DIR, exist_ok=True)
     file_id = document.file_id
     file = await message.bot.get_file(file_id)
@@ -73,16 +70,12 @@ async def handle_file(message: Message, state: FSMContext):
 
     await message.answer("🔍 Анализирую выписку...")
 
-    # Парсинг
     try:
         if file_ext == "pdf":
             parsed_payments = await parse_pdf(temp_path)
         else:
-            # Excel — пока заглушка
-            await message.answer("⚠️ Обработка Excel пока в разработке. Отправьте PDF.")
-            os.remove(temp_path)
-            await state.clear()
-            return
+            from core.parser.excel_parser import parse_excel
+            parsed_payments = await parse_excel(temp_path)
     except Exception as e:
         await message.answer(f"❌ Ошибка при обработке файла: {e}")
         os.remove(temp_path)
@@ -99,7 +92,6 @@ async def handle_file(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    # Группируем найденные платежи по категориям
     medical = [p for p in parsed_payments if p["category"] == "medical"]
     education = [p for p in parsed_payments if p["category"] == "education"]
 
@@ -131,13 +123,10 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext):
         return
 
     deduction_type = callback.data.replace("deduction_", "")
-    # Пока поддерживаем только medical и education
     if deduction_type not in ("medical", "education"):
         await callback.answer("Этот тип вычета пока в разработке", show_alert=True)
         return
 
-    # Берём данные из предыдущего шага
-    # (в реальном сценарии данные придут из FSM, пока упрощённо)
     await callback.message.edit_text(
         f"Для расчёта {_deduction_name(deduction_type)} нужны данные об учреждении.\n\n"
         f"Вы можете загрузить фото договора/справки или ввести данные вручную.",
@@ -161,14 +150,12 @@ async def request_photo(callback: CallbackQuery):
 async def handle_photo(message: Message, state: FSMContext):
     await message.answer("🔍 Распознаю документ...")
 
-    # Скачиваем фото
     os.makedirs(DATA_TEMP_DIR, exist_ok=True)
     photo = message.photo[-1]
     file = await message.bot.get_file(photo.file_id)
     temp_path = os.path.join(DATA_TEMP_DIR, f"{uuid.uuid4()}.jpg")
     await message.bot.download_file(file.file_path, temp_path)
 
-    # OCR — пока заглушка
     try:
         from core.parser.ocr import ocr_document
         result = await ocr_document(temp_path)
@@ -207,7 +194,6 @@ async def handle_photo(message: Message, state: FSMContext):
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
-    await state.set_state(UploadStates.waiting_for_photo)  # остаёмся в этом состоянии для confirm
 
 
 @router.callback_query(F.data == "manual_input", UploadStates.waiting_for_photo)
@@ -261,7 +247,6 @@ async def manual_amount(message: Message, state: FSMContext):
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
-    await state.set_state(UploadStates.waiting_for_photo)
 
 
 @router.callback_query(F.data == "confirm_yes")
@@ -277,7 +262,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext):
     institution_inn = data.get("institution_inn", "")
     total_amount = data.get("total_amount", 0)
 
-    # Расчёт вычета
     calculated = calculate_social_deduction(
         deduction_type=deduction_type,
         amount=total_amount,
@@ -294,9 +278,8 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext):
         f"📆 Год: <b>{calculated['year']}</b>"
     )
 
-    # Сохраняем декларацию в БД
-    session_gen = get_session()
-    session = await anext(session_gen)
+    # Сохраняем декларацию
+    session = next(get_session())
     try:
         declaration = Declaration(
             user_id=user.id,
@@ -307,57 +290,51 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext):
             calculated_data=calculated
         )
         session.add(declaration)
-        await session.commit()
-        await session.refresh(declaration)
+        session.commit()
+        session.refresh(declaration)
         declaration_id = declaration.id
     finally:
-        await session.close()
+        session.close()
 
     if user.access_type == ACCESS_DEMO and user.telegram_id not in ADMIN_IDS:
-        # Демо — только расчёт
         user.declarations_used += 1
-        session_gen2 = get_session()
-        session2 = await anext(session_gen2)
+        session2 = next(get_session())
         try:
-            await session2.merge(user)
-            await session2.commit()
+            session2.merge(user)
+            session2.commit()
         finally:
-            await session2.close()
+            session2.close()
 
         await callback.message.answer(
             "⚠️ У вас демо-доступ. Скачивание PDF и XML недоступно.\n"
             "Для получения полного доступа свяжитесь с администратором."
         )
     else:
-        # Генерируем PDF и XML
         pdf_path = await generate_pdf(declaration_id, calculated)
         xml_path = await generate_xml(declaration_id, calculated)
 
-        session_gen3 = get_session()
-        session3 = await anext(session_gen3)
+        session3 = next(get_session())
         try:
-            decl = await session3.get(Declaration, declaration_id)
+            decl = session3.get(Declaration, declaration_id)
             decl.pdf_path = pdf_path
             decl.xml_path = xml_path
             decl.status = "generated"
-            await session3.commit()
+            session3.commit()
         finally:
-            await session3.close()
+            session3.close()
 
         await callback.message.answer(
             "✅ Декларация готова! Выберите формат для скачивания:",
             reply_markup=download_kb(declaration_id)
         )
 
-        # Обновляем счётчик
         user.declarations_used += 1
-        session_gen4 = get_session()
-        session4 = await anext(session_gen4)
+        session4 = next(get_session())
         try:
-            await session4.merge(user)
-            await session4.commit()
+            session4.merge(user)
+            session4.commit()
         finally:
-            await session4.close()
+            session4.close()
 
     await state.clear()
     await callback.answer()
@@ -385,10 +362,9 @@ async def download_file(callback: CallbackQuery):
     _, file_type, decl_id = callback.data.split("_", 2)
     decl_id = int(decl_id)
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        declaration = await session.get(Declaration, decl_id)
+        declaration = session.get(Declaration, decl_id)
         if not declaration:
             await callback.answer("Декларация не найдена")
             return
@@ -400,7 +376,7 @@ async def download_file(callback: CallbackQuery):
 
         await callback.message.answer_document(FSInputFile(file_path))
     finally:
-        await session.close()
+        session.close()
 
     await callback.answer()
 

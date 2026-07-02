@@ -42,10 +42,9 @@ async def process_user_id(message: Message, state: FSMContext):
         await message.answer("❌ Введите корректный Telegram ID (число).")
         return
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        result = await session.execute(
+        result = session.execute(
             select(User).where(User.telegram_id == user_id)
         )
         user = result.scalar_one_or_none()
@@ -75,7 +74,7 @@ async def process_user_id(message: Message, state: FSMContext):
             reply_markup=admin_grant_type_kb(user_id)
         )
     finally:
-        await session.close()
+        session.close()
 
     await state.clear()
 
@@ -89,10 +88,9 @@ async def grant_access(callback: CallbackQuery):
     _, access_type, user_id = callback.data.split("_", 2)
     user_id = int(user_id)
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        result = await session.execute(
+        result = session.execute(
             select(User).where(User.telegram_id == user_id)
         )
         user = result.scalar_one_or_none()
@@ -101,7 +99,7 @@ async def grant_access(callback: CallbackQuery):
             await callback.answer("Пользователь не найден", show_alert=True)
             return
 
-        admin_result = await session.execute(
+        admin_result = session.execute(
             select(User).where(User.telegram_id == callback.from_user.id)
         )
         admin = admin_result.scalar_one()
@@ -123,9 +121,8 @@ async def grant_access(callback: CallbackQuery):
             user.access_expires = None
             user.declarations_used = 0
 
-        await session.commit()
+        session.commit()
 
-        # Записываем платёж
         payment = Payment(
             user_id=user.id,
             amount=amount,
@@ -134,7 +131,6 @@ async def grant_access(callback: CallbackQuery):
         )
         session.add(payment)
 
-        # Логируем
         log = AdminLog(
             admin_id=admin.id,
             action=f"Выдан доступ {access_type}",
@@ -142,7 +138,7 @@ async def grant_access(callback: CallbackQuery):
         )
         session.add(log)
 
-        await session.commit()
+        session.commit()
 
         access_names = {
             "demo": "🆓 Демо",
@@ -157,7 +153,6 @@ async def grant_access(callback: CallbackQuery):
             reply_markup=admin_back_kb()
         )
 
-        # Уведомляем пользователя
         try:
             await callback.bot.send_message(
                 chat_id=user_id,
@@ -168,9 +163,9 @@ async def grant_access(callback: CallbackQuery):
                 )
             )
         except Exception:
-            pass  # пользователь может заблокировать бота
+            pass
 
     finally:
-        await session.close()
+        session.close()
 
     await callback.answer()

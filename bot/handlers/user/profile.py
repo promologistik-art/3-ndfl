@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from core.models import User, Declaration, get_session
-from bot.keyboards.user import profile_kb, main_menu_kb
+from bot.keyboards.user import profile_kb
 from sqlalchemy import select, func
 
 router = Router()
@@ -15,14 +15,13 @@ async def show_profile(callback: CallbackQuery):
         await callback.answer("Ошибка")
         return
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        total_decls = await session.scalar(
+        total_decls = session.scalar(
             select(func.count(Declaration.id)).where(Declaration.user_id == user.id)
         )
     finally:
-        await session.close()
+        session.close()
 
     access_text_map = {
         "demo": "🆓 Демо",
@@ -59,10 +58,9 @@ async def show_history(callback: CallbackQuery):
         await callback.answer("Ошибка")
         return
 
-    session_gen = get_session()
-    session = await anext(session_gen)
+    session = next(get_session())
     try:
-        result = await session.execute(
+        result = session.execute(
             select(Declaration)
             .where(Declaration.user_id == user.id)
             .order_by(Declaration.created_at.desc())
@@ -70,7 +68,7 @@ async def show_history(callback: CallbackQuery):
         )
         declarations = result.scalars().all()
     finally:
-        await session.close()
+        session.close()
 
     if not declarations:
         await callback.message.edit_text(
