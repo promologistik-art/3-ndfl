@@ -1,0 +1,61 @@
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable
+from aiogram import BaseMiddleware
+from aiogram.types import Message, CallbackQuery
+from sqlalchemy import select
+from bot.config import ADMIN_IDS, ACCESS_DEMO, ACCESS_UNLIMITED, ACCESS_MONTHLY
+from core.models import get_session, User
+
+
+class AccessMiddleware(BaseMiddleware):
+
+    async def __call__(
+        self,
+        handler: Callable[[Message | CallbackQuery, dict[str, Any]], Awaitable[Any]],
+        event: Message | CallbackQuery,
+        data: dict[str, Any],
+    ) -> Any:
+        user_tg = event.from_user
+        if not user_tg:
+            return await handler(event, data)
+
+        # Получаем или создаём пользователя
+        session_gen = get_session()
+        session = await anext(session_gen)
+        try:
+            result = await session.execute(
+                select(User).where(User.telegram_id == user_tg.id)
+            )
+            user = result.scalar_one_or_none()
+
+            if not user:
+                user = User(
+                    telegram_id=user_tg.id,
+                    username=user_tg.username,
+                    first_name=user_tg.first_name,
+                    last_name=user_tg.last_name,
+                    access_type=ACCESS_DEMO,
+                    declarations_used=0
+                )
+                session.add(user)
+                await session.commit()
+                await session.refresh(user)
+
+            # Админы всегда имеют unlimited доступ
+            if user.telegram_id in ADMIN_IDS:
+                user.access_type = ACCESS_UNLIMITED
+                await session.commit()
+
+            # Проверяем истечение подписки monthly
+            if user.access_type == ACCESS_MONTHLY and user.access_expires:
+                now = datetime.now(timezone.utc)
+                if user.access_expires.replace(tzinfo=timezone.utc) < now:
+                    user.access_type = ACCESS_DEMO
+                    user.declarations_used = 0
+                    await session.commit()
+
+            data["user"] = user
+        finally:
+            await session.close()
+
+        return await handler(event, data)

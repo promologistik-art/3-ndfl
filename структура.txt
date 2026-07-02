@@ -1,0 +1,55 @@
+taxbot/
+├── bot/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── middlewares/
+│   │   ├── __init__.py
+│   │   └── access.py
+│   ├── handlers/
+│   │   ├── __init__.py
+│   │   ├── user/
+│   │   │   ├── __init__.py
+│   │   │   ├── start.py
+│   │   │   ├── upload.py
+│   │   │   ├── deduction.py
+│   │   │   └── profile.py
+│   │   └── admin/
+│   │       ├── __init__.py
+│   │       ├── panel.py
+│   │       └── access_mgmt.py
+│   ├── keyboards/
+│   │   ├── __init__.py
+│   │   ├── user.py
+│   │   └── admin.py
+│   └── utils/
+│       ├── __init__.py
+│       └── helpers.py
+├── core/
+│   ├── __init__.py
+│   ├── parser/
+│   │   ├── __init__.py
+│   │   ├── pdf_parser.py
+│   │   ├── excel_parser.py
+│   │   └── ocr.py
+│   ├── calculator/
+│   │   ├── __init__.py
+│   │   ├── social.py
+│   │   ├── investment.py
+│   │   └── property.py
+│   ├── generator/
+│   │   ├── __init__.py
+│   │   ├── pdf_generator.py
+│   │   └── xml_generator.py
+│   └── models/
+│       ├── __init__.py
+│       ├── base.py
+│       ├── user.py
+│       ├── declaration.py
+│       └── payment.py
+├── data/
+│   └── temp/               (создаётся автоматически)
+├── requirements.txt
+├── .env.example
+├── .gitignore
+└── README.md
