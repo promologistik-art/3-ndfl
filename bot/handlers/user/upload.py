@@ -47,12 +47,15 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
 
 @router.message(UploadStates.waiting_for_file, F.document)
 async def handle_file(message: Message, state: FSMContext, user: User = None):
+    print("[DEBUG] handle_file вызван")
+
     if not user:
         await message.answer("Ошибка. Попробуйте позже.")
         return
 
     document = message.document
     file_name = document.file_name.lower()
+    print(f"[DEBUG] Имя файла: {file_name}")
 
     if not (file_name.endswith(".pdf") or file_name.endswith(".xlsx") or file_name.endswith(".xls")):
         await message.answer("❌ Поддерживаются только PDF и Excel файлы. Отправьте файл ещё раз.")
@@ -64,16 +67,21 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
     file_ext = file_name.split(".")[-1]
     temp_path = os.path.join(DATA_TEMP_DIR, f"{uuid.uuid4()}.{file_ext}")
     await message.bot.download_file(file.file_path, temp_path)
+    print(f"[DEBUG] Файл сохранён: {temp_path}")
 
     await message.answer("🔍 Анализирую выписку...")
 
     try:
         if file_ext == "pdf":
+            print("[DEBUG] Вызов parse_pdf")
             parsed_payments = await parse_pdf(temp_path)
         else:
             from core.parser.excel_parser import parse_excel
+            print("[DEBUG] Вызов parse_excel")
             parsed_payments = await parse_excel(temp_path)
+        print(f"[DEBUG] parse_pdf вернул: {len(parsed_payments)} платежей")
     except Exception as e:
+        print(f"[DEBUG] Ошибка парсинга: {e}")
         await message.answer(f"❌ Ошибка при обработке файла: {e}")
         os.remove(temp_path)
         await state.clear()
@@ -109,6 +117,7 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
 @router.message(UploadStates.waiting_for_file)
 async def handle_wrong_format(message: Message):
+    print("[DEBUG] handle_wrong_format вызван")
     await message.answer("❌ Отправьте файл в формате PDF или Excel.")
 
 
