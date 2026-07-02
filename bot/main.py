@@ -1,11 +1,7 @@
-import sys
-import os
-
-# Добавляем корень проекта в sys.path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import asyncio
 import logging
+import os
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -24,22 +20,16 @@ logger = logging.getLogger(__name__)
 
 
 async def main():
-    # Создаём временную папку
     os.makedirs(DATA_TEMP_DIR, exist_ok=True)
-
-    # Инициализация БД
     await init_db()
     logger.info("База данных инициализирована")
 
-    # Бот и диспетчер
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = Dispatcher(storage=MemoryStorage())
 
-    # Подключаем middleware
     dp.message.middleware(AccessMiddleware())
     dp.callback_query.middleware(AccessMiddleware())
 
-    # Подключаем роутеры
     dp.include_router(user_start_router)
     dp.include_router(user_upload_router)
     dp.include_router(user_profile_router)
