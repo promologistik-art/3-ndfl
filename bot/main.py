@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 async def main():
     os.makedirs(DATA_TEMP_DIR, exist_ok=True)
-    await init_db()
+    init_db()
     logger.info("База данных инициализирована")
 
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
