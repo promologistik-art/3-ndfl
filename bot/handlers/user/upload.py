@@ -123,7 +123,8 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, us
         await callback.answer("Этот тип вычета пока в разработке", show_alert=True)
         return
 
-    await callback.message.edit_text(
+    # Отправляем новое сообщение вместо редактирования старого
+    await callback.message.answer(
         f"Для расчёта {_deduction_name(deduction_type)} нужны данные об учреждении.\n\n"
         f"Вы можете загрузить фото договора/справки или ввести данные вручную.",
         reply_markup=confirm_manual_input_kb()
@@ -264,7 +265,7 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         institution_inn=institution_inn
     )
 
-    await callback.message.edit_text(
+    await callback.message.answer(
         f"📊 Результат расчёта:\n\n"
         f"🏢 Учреждение: <b>{institution_name}</b>\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
@@ -336,7 +337,7 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
 
 @router.callback_query(F.data == "confirm_no")
 async def confirm_no(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Давайте введём данные заново.")
+    await callback.message.answer("Давайте введём данные заново.")
     await state.set_state(UploadStates.waiting_for_manual_name)
     await callback.message.answer("Введите наименование учреждения:")
     await callback.answer()
