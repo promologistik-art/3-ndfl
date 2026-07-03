@@ -1,6 +1,7 @@
 import re
+import os
 import fitz
-from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS
+from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, DATA_TEMP_DIR
 
 
 async def parse_pdf(file_path: str) -> list[dict]:
@@ -10,10 +11,10 @@ async def parse_pdf(file_path: str) -> list[dict]:
         full_text += page.get_text() + "\n"
     doc.close()
 
-    # Отладка: выводим сырой текст из PDF в логи (полностью)
-    print("[PARSER RAW TEXT START]")
-    print(full_text)
-    print("[PARSER RAW TEXT END]")
+    # Отладка: записываем сырой текст в файл
+    debug_path = os.path.join(DATA_TEMP_DIR, "parsed_text.txt")
+    with open(debug_path, "w", encoding="utf-8") as f:
+        f.write(full_text)
 
     lines = full_text.split("\n")
     merged_lines = _merge_broken_lines(lines)
