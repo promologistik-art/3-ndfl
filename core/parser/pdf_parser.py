@@ -4,7 +4,6 @@ import fitz
 from bot.config import DATA_TEMP_DIR
 
 
-# Только явные медицинские учреждения
 MEDICAL_PATTERNS = [
     r"гбуз", r"г\s*б\s*у\s*з", r"тгкб", r"гкб", r"црб", r"ркб",
     r"поликлиник", r"больниц", r"госпитал", r"диспансер",
@@ -12,7 +11,6 @@ MEDICAL_PATTERNS = [
     r"сан\s*часть", r"мсч", r"нмиц", r"фгбу", r"фгбун",
 ]
 
-# Только явные образовательные учреждения
 EDUCATION_PATTERNS = [
     r"университет", r"универ\s", r"институт\s", r"академи",
     r"колледж", r"лицей", r"гимназ", r"школ\s", r"вуз\s",
@@ -27,15 +25,21 @@ async def parse_pdf(file_path: str) -> list[dict]:
         full_text += page.get_text() + "\n"
     doc.close()
 
+    # Сырой текст
     debug_path = os.path.join(DATA_TEMP_DIR, "parsed_text.txt")
     with open(debug_path, "w", encoding="utf-8") as f:
         f.write(full_text)
 
-    # Убираем колонтитулы
-    full_text = _clean_footer_header(full_text)
+    # Отладочный файл для промежуточных данных
+    debug_ops_path = os.path.join(DATA_TEMP_DIR, "parsed_debug.txt")
+    debug_lines = []
 
-    # Извлекаем операции
-    operations = _extract_operations_from_text(full_text)
+    full_text = _clean_footer_header(full_text)
+    operations = _extract_operations_from_text(full_text, debug_lines)
+
+    # Записываем отладку
+    with open(debug_ops_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(debug_lines))
 
     payments = []
     for op in operations:
@@ -52,15 +56,10 @@ async def parse_pdf(file_path: str) -> list[dict]:
 
 
 def _clean_footer_header(text: str) -> str:
-    """
-    Полностью удаляет колонтитулы с реквизитами банка и лицензией.
-    """
-    # Удаляем строки, содержащие реквизиты банка (они повторяются на каждой странице)
     lines = text.split("\n")
     cleaned = []
     for line in lines:
         stripped = line.strip()
-        # Пропускаем строки колонтитула
         if any(x in stripped for x in [
             "ООО «ВБ Банк»",
             "ИНН 0102000578",
@@ -77,21 +76,22 @@ def _clean_footer_header(text: str) -> str:
     return "\n".join(cleaned)
 
 
-def _extract_operations_from_text(text: str) -> list[dict]:
+def _extract_operations_from_text(text: str, debug_lines: list) -> list[dict]:
     operations = []
 
-    # Ищем начало таблицы
     table_start = text.find("Дата и время\nоперации")
     if table_start == -1:
         table_start = text.find("Дата и время операции")
     if table_start == -1:
+        debug_lines.append("[ERROR] Не найдена шапка таблицы")
         return operations
 
     body = text[table_start:]
 
-    # Ищем паттерн начала операции: дата + время на следующей строке
     pattern = r"(\d{2}\.\d{2}\.\d{4})\s*\n\s*(\d{2}:\d{2})"
     matches = list(re.finditer(pattern, body))
+
+    debug_lines.append(f"[INFO] Найдено операций по дате+времени: {len(matches)}")
 
     for i, match in enumerate(matches):
         date = match.group(1)
@@ -102,22 +102,29 @@ def _extract_operations_from_text(text: str) -> list[dict]:
         # Ищем отрицательную сумму
         amount_match = re.search(r"-(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", block)
         if not amount_match:
+            debug_lines.append(f"[SKIP] {date} — нет отрицательной суммы")
             continue
 
         raw_amount = amount_match.group(1).replace(" ", "").replace(",", ".")
         try:
             amount = float(raw_amount)
         except ValueError:
+            debug_lines.append(f"[SKIP] {date} — не удалось распарсить сумму: {raw_amount}")
             continue
 
         # Описание: всё после последнего ₽
         rub_matches = list(re.finditer(r"₽", block))
         if not rub_matches:
+            debug_lines.append(f"[SKIP] {date} — нет знака ₽")
             continue
 
         desc_start = rub_matches[-1].end()
-        description = block[desc_start:]
-        description = _clean_description(description)
+        raw_description = block[desc_start:]
+        description = _clean_description(raw_description)
+
+        debug_lines.append(f"[OK] {date} | сумма: -{amount} | сырое: {repr(raw_description[:150])}")
+        debug_lines.append(f"     очищенное: {repr(description[:150])}")
+        debug_lines.append("")
 
         if description:
             operations.append({
@@ -130,19 +137,13 @@ def _extract_operations_from_text(text: str) -> list[dict]:
 
 
 def _clean_description(text: str) -> str:
-    # Убираем строки с датами и временем
     text = re.sub(r"\d{2}\.\d{2}\.\d{4}\s*\n?\s*\d{2}:\d{2}", " ", text)
     text = re.sub(r"\d{2}\.\d{2}\.\d{4}", " ", text)
     text = re.sub(r"\d{2}:\d{2}", " ", text)
-    # Убираем ID транзакций
     text = re.sub(r"ID\s*[-\s]*[A-Z0-9]{10,}", " ", text)
-    # Убираем длинные числа (номера карт, счетов)
     text = re.sub(r"\b\d{10,}\b", " ", text)
-    # Убираем оставшиеся числа
     text = re.sub(r"\b\d+\b", " ", text)
-    # Убираем тире в начале
     text = text.strip("- ")
-    # Убираем лишние пробелы
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
