@@ -85,7 +85,6 @@ def _extract_operations_from_text(text: str, debug_lines: list) -> list[dict]:
 
     body = text[table_start:]
 
-    # Ищем ВСЕ даты с временем (не только те, что с отрицательной суммой)
     pattern = r"(\d{2}\.\d{2}\.\d{4})\s*\n\s*(\d{2}:\d{2})"
     matches = list(re.finditer(pattern, body))
 
@@ -98,15 +97,22 @@ def _extract_operations_from_text(text: str, debug_lines: list) -> list[dict]:
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         block = body[start:end]
 
-        # Ищем сумму в этом блоке (может быть положительной или отрицательной)
-        amount_match = re.search(r"([+-]?\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", block)
+        # Исправленный regex суммы: поддерживает и пробел, и запятую как разделитель тысяч
+        # Примеры: "+5,000.00 ₽", "-8,000.00 ₽", "+200.00 ₽", "-1 200.00 ₽"
+        amount_match = re.search(
+            r"([+-])[\s]*(\d{1,3}(?:[\s,]\d{3})*(?:[.]\d{2})?)\s*₽",
+            block
+        )
         if not amount_match:
             debug_lines.append(f"[SKIP] {date} {time} — нет суммы с ₽")
             continue
 
-        raw_amount = amount_match.group(1).replace(" ", "").replace(",", ".")
+        sign = amount_match.group(1)
+        raw_amount = amount_match.group(2).replace(" ", "").replace(",", "")
         try:
             amount = float(raw_amount)
+            if sign == "-":
+                amount = -amount
         except ValueError:
             debug_lines.append(f"[SKIP] {date} {time} — не распарсить сумму: {raw_amount}")
             continue
@@ -136,14 +142,26 @@ def _extract_operations_from_text(text: str, debug_lines: list) -> list[dict]:
 
 
 def _clean_description(text: str) -> str:
+    # Убираем строки с датами и временем
     text = re.sub(r"\d{2}\.\d{2}\.\d{4}\s*\n?\s*\d{2}:\d{2}", " ", text)
     text = re.sub(r"\d{2}\.\d{2}\.\d{4}", " ", text)
     text = re.sub(r"\d{2}:\d{2}", " ", text)
+    # Убираем ID транзакций (длинные буквенно-цифровые коды)
     text = re.sub(r"ID\s*[-\s]*[A-Z0-9]{10,}", " ", text)
+    # Убираем одиночные длинные числа (номера карт, счетов) — 10+ цифр подряд
     text = re.sub(r"\b\d{10,}\b", " ", text)
-    text = re.sub(r"\b\d+\b", " ", text)
+    # Убираем тире в начале
     text = text.strip("- ")
+    # Убираем лишние пробелы
     text = re.sub(r"\s+", " ", text)
+    # Убираем мусор от шапки таблицы если попал в описание
+    text = re.sub(r"Дата и время операции.*", "", text)
+    text = re.sub(r"Дата отражения по счету.*", "", text)
+    text = re.sub(r"Номер документа.*", "", text)
+    text = re.sub(r"Сумма в валюте операции.*", "", text)
+    text = re.sub(r"Сумма в валюте счета.*", "", text)
+    text = re.sub(r"Описание операции.*", "", text)
+    text = re.sub(r"Номер карты.*", "", text)
     return text.strip()
 
 
