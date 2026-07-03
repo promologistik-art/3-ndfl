@@ -25,19 +25,16 @@ async def parse_pdf(file_path: str) -> list[dict]:
         full_text += page.get_text() + "\n"
     doc.close()
 
-    # Сырой текст
     debug_path = os.path.join(DATA_TEMP_DIR, "parsed_text.txt")
     with open(debug_path, "w", encoding="utf-8") as f:
         f.write(full_text)
 
-    # Отладочный файл для промежуточных данных
     debug_ops_path = os.path.join(DATA_TEMP_DIR, "parsed_debug.txt")
     debug_lines = []
 
     full_text = _clean_footer_header(full_text)
     operations = _extract_operations_from_text(full_text, debug_lines)
 
-    # Записываем отладку
     with open(debug_ops_path, "w", encoding="utf-8") as f:
         f.write("\n".join(debug_lines))
 
@@ -88,48 +85,50 @@ def _extract_operations_from_text(text: str, debug_lines: list) -> list[dict]:
 
     body = text[table_start:]
 
+    # Ищем ВСЕ даты с временем (не только те, что с отрицательной суммой)
     pattern = r"(\d{2}\.\d{2}\.\d{4})\s*\n\s*(\d{2}:\d{2})"
     matches = list(re.finditer(pattern, body))
 
-    debug_lines.append(f"[INFO] Найдено операций по дате+времени: {len(matches)}")
+    debug_lines.append(f"[INFO] Всего дат с временем: {len(matches)}")
 
     for i, match in enumerate(matches):
         date = match.group(1)
+        time = match.group(2)
         start = match.end()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         block = body[start:end]
 
-        # Ищем отрицательную сумму
-        amount_match = re.search(r"-(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", block)
+        # Ищем сумму в этом блоке (может быть положительной или отрицательной)
+        amount_match = re.search(r"([+-]?\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", block)
         if not amount_match:
-            debug_lines.append(f"[SKIP] {date} — нет отрицательной суммы")
+            debug_lines.append(f"[SKIP] {date} {time} — нет суммы с ₽")
             continue
 
         raw_amount = amount_match.group(1).replace(" ", "").replace(",", ".")
         try:
             amount = float(raw_amount)
         except ValueError:
-            debug_lines.append(f"[SKIP] {date} — не удалось распарсить сумму: {raw_amount}")
+            debug_lines.append(f"[SKIP] {date} {time} — не распарсить сумму: {raw_amount}")
             continue
 
         # Описание: всё после последнего ₽
         rub_matches = list(re.finditer(r"₽", block))
         if not rub_matches:
-            debug_lines.append(f"[SKIP] {date} — нет знака ₽")
+            debug_lines.append(f"[SKIP] {date} {time} — нет знака ₽")
             continue
 
         desc_start = rub_matches[-1].end()
         raw_description = block[desc_start:]
         description = _clean_description(raw_description)
 
-        debug_lines.append(f"[OK] {date} | сумма: -{amount} | сырое: {repr(raw_description[:150])}")
+        debug_lines.append(f"[OK] {date} {time} | сумма: {amount} | сырое: {repr(raw_description[:150])}")
         debug_lines.append(f"     очищенное: {repr(description[:150])}")
         debug_lines.append("")
 
         if description:
             operations.append({
                 "date": date,
-                "amount": -amount,
+                "amount": amount,
                 "description": description
             })
 
