@@ -1,7 +1,23 @@
 import re
 import os
 import fitz
-from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, DATA_TEMP_DIR
+from bot.config import DATA_TEMP_DIR
+
+
+# Только явные медицинские учреждения
+MEDICAL_PATTERNS = [
+    r"гбуз", r"г\s*б\s*у\s*з", r"тгкб", r"гкб", r"црб", r"ркб",
+    r"поликлиник", r"больниц", r"госпитал", r"диспансер",
+    r"стоматолог", r"роддом", r"мед\s*центр", r"клиник\s",
+    r"сан\s*часть", r"мсч", r"нмиц", r"фгбу", r"фгбун",
+]
+
+# Только явные образовательные учреждения
+EDUCATION_PATTERNS = [
+    r"университет", r"универ\s", r"институт\s", r"академи",
+    r"колледж", r"лицей", r"гимназ", r"школ\s", r"вуз\s",
+    r"техникум", r"училищ",
+]
 
 
 async def parse_pdf(file_path: str) -> list[dict]:
@@ -11,18 +27,16 @@ async def parse_pdf(file_path: str) -> list[dict]:
         full_text += page.get_text() + "\n"
     doc.close()
 
-    # Отладка: записываем сырой текст в файл
     debug_path = os.path.join(DATA_TEMP_DIR, "parsed_text.txt")
     with open(debug_path, "w", encoding="utf-8") as f:
         f.write(full_text)
 
-    # Убираем колонтитулы и служебные строки между страницами
+    # Убираем колонтитулы
     full_text = _clean_footer_header(full_text)
 
-    # Находим все блоки операций
+    # Извлекаем операции
     operations = _extract_operations_from_text(full_text)
 
-    # Фильтруем по категориям
     payments = []
     for op in operations:
         category = _detect_category(op["description"])
@@ -39,51 +53,53 @@ async def parse_pdf(file_path: str) -> list[dict]:
 
 def _clean_footer_header(text: str) -> str:
     """
-    Убирает повторяющиеся колонтитулы с реквизитами банка,
-    которые вставляются между страницами.
+    Полностью удаляет колонтитулы с реквизитами банка и лицензией.
     """
-    # Паттерн колонтитула: начинается с "ООО «ВБ Банк»" и заканчивается номером лицензии
-    footer_pattern = r"ООО «ВБ Банк»[^\n]*\n(?:[^\n]*\n)*?(?:Универсальная лицензия[^\n]*\n)"
-    text = re.sub(footer_pattern, "", text)
-    return text
+    # Удаляем строки, содержащие реквизиты банка (они повторяются на каждой странице)
+    lines = text.split("\n")
+    cleaned = []
+    for line in lines:
+        stripped = line.strip()
+        # Пропускаем строки колонтитула
+        if any(x in stripped for x in [
+            "ООО «ВБ Банк»",
+            "ИНН 0102000578",
+            "ОГРН 1020100002340",
+            "Большая Ордынка",
+            "8 800 770-77-70",
+            "www.wb-bank.ru",
+            "info@wb-bank.ru",
+            "Универсальная лицензия",
+            "от 22 января 2026 года",
+        ]):
+            continue
+        cleaned.append(line)
+    return "\n".join(cleaned)
 
 
 def _extract_operations_from_text(text: str) -> list[dict]:
-    """
-    Извлекает операции из текста PDF.
-    Ищет блоки: дата + время + ... + сумма + описание.
-    """
     operations = []
 
-    # Ищем начало таблицы — строка "Дата и время операции"
+    # Ищем начало таблицы
     table_start = text.find("Дата и время\nоперации")
     if table_start == -1:
         table_start = text.find("Дата и время операции")
     if table_start == -1:
         return operations
 
-    # Берём текст после заголовка таблицы
     body = text[table_start:]
 
-    # Ищем все позиции дат формата ДД.ММ.ГГГГ, за которыми сразу идёт время ЧЧ:ММ
-    # Это паттерн начала операции: "ДД.ММ.ГГГГ\nЧЧ:ММ"
+    # Ищем паттерн начала операции: дата + время на следующей строке
     pattern = r"(\d{2}\.\d{2}\.\d{4})\s*\n\s*(\d{2}:\d{2})"
     matches = list(re.finditer(pattern, body))
 
     for i, match in enumerate(matches):
         date = match.group(1)
-        # Начало блока операции — сразу после времени
         start = match.end()
-
-        # Конец блока — начало следующей операции или конец текста
-        if i + 1 < len(matches):
-            end = matches[i + 1].start()
-        else:
-            end = len(body)
-
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(body)
         block = body[start:end]
 
-        # Ищем сумму (отрицательную) в блоке
+        # Ищем отрицательную сумму
         amount_match = re.search(r"-(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", block)
         if not amount_match:
             continue
@@ -94,15 +110,13 @@ def _extract_operations_from_text(text: str) -> list[dict]:
         except ValueError:
             continue
 
-        # Описание — всё после последнего знака ₽ в блоке
+        # Описание: всё после последнего ₽
         rub_matches = list(re.finditer(r"₽", block))
         if not rub_matches:
             continue
 
         desc_start = rub_matches[-1].end()
         description = block[desc_start:]
-
-        # Чистим описание
         description = _clean_description(description)
 
         if description:
@@ -116,54 +130,31 @@ def _extract_operations_from_text(text: str) -> list[dict]:
 
 
 def _clean_description(text: str) -> str:
-    """
-    Очищает описание операции от мусора:
-    - номера документов
-    - ID транзакций
-    - номера карт
-    - остатки дат и времени
-    """
-    # Убираем даты
-    text = re.sub(r"\d{2}\.\d{2}\.\d{4}", "", text)
-    # Убираем время
-    text = re.sub(r"\d{2}:\d{2}", "", text)
-    # Убираем длинные числовые идентификаторы (номера карт, ID)
-    text = re.sub(r"\b\d{10,}\b", "", text)
-    # Убираем оставшиеся числа (номера документов)
-    text = re.sub(r"\b\d+\b", "", text)
-    # Убираем знак тире в начале
+    # Убираем строки с датами и временем
+    text = re.sub(r"\d{2}\.\d{2}\.\d{4}\s*\n?\s*\d{2}:\d{2}", " ", text)
+    text = re.sub(r"\d{2}\.\d{2}\.\d{4}", " ", text)
+    text = re.sub(r"\d{2}:\d{2}", " ", text)
+    # Убираем ID транзакций
+    text = re.sub(r"ID\s*[-\s]*[A-Z0-9]{10,}", " ", text)
+    # Убираем длинные числа (номера карт, счетов)
+    text = re.sub(r"\b\d{10,}\b", " ", text)
+    # Убираем оставшиеся числа
+    text = re.sub(r"\b\d+\b", " ", text)
+    # Убираем тире в начале
     text = text.strip("- ")
-    # Схлопываем множественные пробелы и переносы строк
+    # Убираем лишние пробелы
     text = re.sub(r"\s+", " ", text)
-
     return text.strip()
 
 
 def _detect_category(description: str) -> str | None:
     desc_lower = description.lower()
 
-    for kw in MEDICAL_KEYWORDS:
-        if kw.lower() in desc_lower:
-            return "medical"
-
-    for kw in EDUCATION_KEYWORDS:
-        if kw.lower() in desc_lower:
-            return "education"
-
-    medical_patterns = [
-        r"гбуз", r"г\s*б\s*у\s*з", r"поликлин", r"госпитал",
-        r"диспансер", r"роддом", r"мед\s*центр", r"стоматолог", r"зубн",
-        r"тгкб", r"гкб", r"црб", r"ркб", r"клиник"
-    ]
-    for pattern in medical_patterns:
+    for pattern in MEDICAL_PATTERNS:
         if re.search(pattern, desc_lower):
             return "medical"
 
-    education_patterns = [
-        r"универ", r"институт", r"академи", r"колледж",
-        r"школ", r"гимназ", r"лицей", r"вуз", r"образован"
-    ]
-    for pattern in education_patterns:
+    for pattern in EDUCATION_PATTERNS:
         if re.search(pattern, desc_lower):
             return "education"
 
