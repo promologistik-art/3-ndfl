@@ -9,8 +9,7 @@ from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, AC
 from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb
 from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
-from core.generator.pdf_generator import generate_pdf
-from core.generator.xml_generator import generate_xml
+from core.generator.excel_generator import generate_excel
 
 router = Router()
 
@@ -253,7 +252,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
-    # Запрашиваем ИНН налогоплательщика
     await callback.message.answer(
         "📝 Для заполнения декларации нужны ваши данные.\n\n"
         "Введите ваш ИНН (12 цифр):"
@@ -328,7 +326,7 @@ async def taxpayer_phone(message: Message, state: FSMContext, user: User = None)
             session2.close()
 
         await message.answer(
-            "⚠️ У вас демо-доступ. Скачивание PDF и XML недоступно.\n"
+            "⚠️ У вас демо-доступ. Скачивание декларации недоступно.\n"
             "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>"
         )
     else:
@@ -337,21 +335,19 @@ async def taxpayer_phone(message: Message, state: FSMContext, user: User = None)
             "taxpayer_inn": data.get("taxpayer_inn", ""),
             "taxpayer_phone": data.get("taxpayer_phone", ""),
         }
-        pdf_path = await generate_pdf(declaration_id, pdf_data)
-        xml_path = await generate_xml(declaration_id, pdf_data)
+        excel_path = await generate_excel(declaration_id, pdf_data)
 
         session3 = next(get_session())
         try:
             decl = session3.get(Declaration, declaration_id)
-            decl.pdf_path = pdf_path
-            decl.xml_path = xml_path
+            decl.pdf_path = excel_path
             decl.status = "generated"
             session3.commit()
         finally:
             session3.close()
 
         await message.answer(
-            "✅ Декларация готова! Выберите формат для скачивания:",
+            "✅ Декларация готова!",
             reply_markup=download_kb(declaration_id)
         )
 
@@ -394,7 +390,7 @@ async def download_file(callback: CallbackQuery, user: User = None):
             await callback.answer("Декларация не найдена")
             return
 
-        file_path = declaration.pdf_path if file_type == "pdf" else declaration.xml_path
+        file_path = declaration.pdf_path
         if not file_path or not os.path.exists(file_path):
             await callback.answer("Файл не найден")
             return

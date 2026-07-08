@@ -44,8 +44,7 @@ def confirm_data_kb() -> InlineKeyboardMarkup:
 def download_kb(declaration_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📄 Скачать PDF", callback_data=f"download_pdf_{declaration_id}")],
-            [InlineKeyboardButton(text="📋 Скачать XML", callback_data=f"download_xml_{declaration_id}")],
+            [InlineKeyboardButton(text="📥 Скачать декларацию (Excel)", callback_data=f"download_xlsx_{declaration_id}")],
             [InlineKeyboardButton(text="🔙 В главное меню", callback_data="menu_back")],
         ]
     )
