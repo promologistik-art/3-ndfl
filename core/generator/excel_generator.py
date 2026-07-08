@@ -1,5 +1,4 @@
 import os
-import shutil
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
 from bot.config import DATA_TEMP_DIR
@@ -11,9 +10,8 @@ TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
     excel_path = os.path.join(DATA_TEMP_DIR, f"declaration_{declaration_id}.xlsx")
-    shutil.copy(TEMPLATE_PATH, excel_path)
 
-    wb = load_workbook(excel_path)
+    wb = load_workbook(TEMPLATE_PATH)
 
     _fill_title(wb, data)
     _fill_section1(wb, data)
@@ -26,13 +24,11 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
 
 
 def _safe_write(ws, cell_ref, value):
-    """Пишет в ячейку, даже если она MergedCell — находит родительскую."""
     cell = ws[cell_ref]
     if isinstance(cell, MergedCell):
-        # Ищем объединённый диапазон, в который входит ячейка
         for merged_range in ws.merged_cells.ranges:
             if cell.coordinate in merged_range:
-                parent_cell = ws[merged_range.min_row][merged_range.min_col - 1]
+                parent_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
                 parent_cell.value = value
                 return
     else:
