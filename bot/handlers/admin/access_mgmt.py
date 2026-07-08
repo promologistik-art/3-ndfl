@@ -12,7 +12,7 @@ router = Router()
 
 
 class AccessStates(StatesGroup):
-    waiting_for_user_id = State()
+    waiting_for_username = State()
 
 
 @router.callback_query(F.data == "admin_grant")
@@ -22,42 +22,44 @@ async def admin_grant(callback: CallbackQuery, state: FSMContext):
         return
 
     await callback.message.edit_text(
-        "👤 Введите Telegram ID пользователя, которому нужно выдать доступ:",
+        "👤 Введите никнейм пользователя (@username), которому нужно выдать доступ:",
         reply_markup=admin_back_kb()
     )
-    await state.set_state(AccessStates.waiting_for_user_id)
+    await state.set_state(AccessStates.waiting_for_username)
     await callback.answer()
 
 
-@router.message(AccessStates.waiting_for_user_id)
-async def process_user_id(message: Message, state: FSMContext):
+@router.message(AccessStates.waiting_for_username)
+async def process_username(message: Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         await message.answer("Доступ запрещён")
         await state.clear()
         return
 
-    try:
-        user_id = int(message.text.strip())
-    except ValueError:
-        await message.answer("❌ Введите корректный Telegram ID (число).")
+    raw = message.text.strip()
+    # Убираем @ если есть
+    username = raw.lstrip("@")
+
+    if not username:
+        await message.answer("❌ Введите никнейм.")
         return
 
     session = next(get_session())
     try:
         result = session.execute(
-            select(User).where(User.telegram_id == user_id)
+            select(User).where(User.username == username)
         )
         user = result.scalar_one_or_none()
 
         if not user:
             await message.answer(
-                f"❌ Пользователь с ID <code>{user_id}</code> не найден в базе.\n"
-                f"Возможно, он ещё не запускал бота."
+                f"❌ Пользователь с никнеймом <b>@{username}</b> не найден в базе.\n"
+                f"Возможно, он ещё не запускал бота или скрыл никнейм."
             )
             await state.clear()
             return
 
-        await state.update_data(target_user_id=user_id)
+        await state.update_data(target_user_id=user.telegram_id)
 
         access_text_map = {
             "demo": "🆓 Демо",
@@ -71,7 +73,7 @@ async def process_user_id(message: Message, state: FSMContext):
             f"🆔 ID: <code>{user.telegram_id}</code>\n"
             f"📌 Текущий доступ: <b>{current_access}</b>\n\n"
             f"Выберите тип доступа для выдачи:",
-            reply_markup=admin_grant_type_kb(user_id)
+            reply_markup=admin_grant_type_kb(user.telegram_id)
         )
     finally:
         session.close()
@@ -134,7 +136,7 @@ async def grant_access(callback: CallbackQuery):
         log = AdminLog(
             admin_id=admin.id,
             action=f"Выдан доступ {access_type}",
-            details=f"Пользователь ID={user_id}, сумма={amount}₽"
+            details=f"Пользователь @{user.username}, сумма={amount}₽"
         )
         session.add(log)
 
@@ -148,7 +150,7 @@ async def grant_access(callback: CallbackQuery):
 
         await callback.message.edit_text(
             f"✅ Доступ успешно выдан!\n\n"
-            f"👤 Пользователь: <b>{user.first_name or '—'}</b>\n"
+            f"👤 Пользователь: <b>{user.first_name or '—'}</b> (@{user.username or '—'})\n"
             f"📌 Новый доступ: <b>{access_names.get(access_type, access_type)}</b>",
             reply_markup=admin_back_kb()
         )
