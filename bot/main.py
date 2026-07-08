@@ -21,12 +21,20 @@ logger = logging.getLogger(__name__)
 
 
 async def set_commands(bot: Bot):
+    # Общие команды для всех
     commands = [
         BotCommand(command="start", description="🔄 Перезапуск бота"),
         BotCommand(command="help", description="❓ Помощь и инструкция"),
         BotCommand(command="status", description="📊 Мой тариф и остаток"),
     ]
     await bot.set_my_commands(commands)
+
+    # Добавляем /admin только для админов
+    for admin_id in ADMIN_IDS:
+        admin_commands = commands + [
+            BotCommand(command="admin", description="🔐 Админ-панель"),
+        ]
+        await bot.set_my_commands(admin_commands, scope={"type": "chat", "chat_id": admin_id})
 
 
 async def main():
