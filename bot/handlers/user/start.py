@@ -5,6 +5,7 @@ from aiogram.fsm.context import FSMContext
 from datetime import datetime, timezone
 from core.models import User, Declaration, get_session
 from bot.keyboards.user import main_menu_kb
+from bot.keyboards.admin import admin_panel_kb
 from bot.config import ADMIN_IDS
 from sqlalchemy import select, func
 
@@ -13,7 +14,6 @@ router = Router()
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext, user: User = None):
-    # Сбрасываем все состояния
     await state.clear()
 
     if not user:
@@ -83,6 +83,18 @@ async def cmd_status(message: Message, user: User = None):
         f"📩 По вопросам доступа: <b>@silverzen</b>"
     )
     await message.answer(text)
+
+
+@router.message(Command("admin"))
+async def cmd_admin(message: Message, user: User = None):
+    if message.from_user.id not in ADMIN_IDS:
+        await message.answer("Доступ запрещён.")
+        return
+
+    await message.answer(
+        "🔐 <b>Админ-панель</b>\n\nВыберите действие:",
+        reply_markup=admin_panel_kb()
+    )
 
 
 @router.callback_query(F.data == "menu_back")
