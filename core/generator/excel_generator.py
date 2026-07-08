@@ -35,21 +35,131 @@ def _safe_write(ws, cell_ref, value):
         cell.value = value
 
 
+def _write_inn(ws, inn):
+    """Записывает 12 цифр ИНН в объединённые пары ячеек Y1-Z1, AA1-AB1, ..."""
+    if not inn or len(inn) < 12:
+        return
+    # Колонки: Y=25, AA=27, AC=29, AE=31, AG=33, AI=35, AK=37, AM=39, AO=41, AQ=43, AS=45, AU=47
+    cols = [25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47]
+    from openpyxl.utils import get_column_letter
+    for i, digit in enumerate(inn[:12]):
+        col_letter = get_column_letter(cols[i])
+        _safe_write(ws, f"{col_letter}1", digit)
+
+
+def _write_fio(ws, last_name, first_name, middle_name, start_col, row):
+    """Записывает ФИО по буквам в объединённые пары ячеек."""
+    text = (last_name + " " + first_name + " " + middle_name).strip()
+    from openpyxl.utils import get_column_letter
+    col = start_col
+    for char in text:
+        col_letter = get_column_letter(col)
+        _safe_write(ws, f"{col_letter}{row}", char.upper())
+        col += 2  # каждая буква в паре объединённых ячеек
+
+
 def _fill_title(wb, data):
     ws = wb["Титульный лист"]
-    _safe_write(ws, "B10", "0")
-    _safe_write(ws, "N10", "34")
-    _safe_write(ws, "X10", data.get("year", ""))
-    _safe_write(ws, "B14", "643")
-    _safe_write(ws, "P14", "760")
-    _safe_write(ws, "V24", "1")
-    _safe_write(ws, "B26", data.get("taxpayer_phone", ""))
+
+    # ИНН
+    _write_inn(ws, data.get("taxpayer_inn", ""))
+
+    # Номер корректировки: K11, M11, O11
+    _safe_write(ws, "K11", "0")
+    _safe_write(ws, "M11", "0")
+    _safe_write(ws, "O11", "0")
+
+    # Налоговый период: AC11, AE11 = "34"
+    _safe_write(ws, "AC11", "3")
+    _safe_write(ws, "AE11", "4")
+
+    # Отчётный год: AU11, AW11, AY11, BA11
+    year = data.get("year", "")
+    if len(year) >= 4:
+        _safe_write(ws, "AU11", year[0])
+        _safe_write(ws, "AW11", year[1])
+        _safe_write(ws, "AY11", year[2])
+        _safe_write(ws, "BA11", year[3])
+
+    # Код налогового органа: BU11, BW11, BY11, CA11
+    tax_office = data.get("tax_office", "")
+    if len(tax_office) >= 4:
+        _safe_write(ws, "BU11", tax_office[0])
+        _safe_write(ws, "BW11", tax_office[1])
+        _safe_write(ws, "BY11", tax_office[2])
+        _safe_write(ws, "CA11", tax_office[3])
+
+    # Код страны: K16, M16, O16 = "643"
+    _safe_write(ws, "K16", "6")
+    _safe_write(ws, "M16", "4")
+    _safe_write(ws, "O16", "3")
+
+    # Код категории: AU16, AW16, AY16 = "760"
+    _safe_write(ws, "AU16", "7")
+    _safe_write(ws, "AW16", "6")
+    _safe_write(ws, "AY16", "0")
+
+    # Фамилия: строка 18, начиная с K
+    _write_fio_field(ws, data.get("last_name", ""), 11, 18)
+
+    # Имя: строка 20, начиная с K
+    _write_fio_field(ws, data.get("first_name", ""), 11, 20)
+
+    # Отчество: строка 22, начиная с K
+    _write_fio_field(ws, data.get("middle_name", ""), 11, 22)
+
+    # Дата рождения: строка 28, K, M, O, Q (ДД), S, U (ММ), W, Y (ГГГГ)
+    birth_date = data.get("birth_date", "")
+    if len(birth_date) == 10:
+        _safe_write(ws, "K28", birth_date[0])
+        _safe_write(ws, "M28", birth_date[1])
+        _safe_write(ws, "O28", birth_date[3])
+        _safe_write(ws, "Q28", birth_date[4])
+        _safe_write(ws, "S28", birth_date[6])
+        _safe_write(ws, "U28", birth_date[7])
+        _safe_write(ws, "W28", birth_date[8])
+        _safe_write(ws, "Y28", birth_date[9])
+
+    # Код вида документа: 21 (паспорт РФ) — строка 30, K30, M30
+    _safe_write(ws, "K30", "2")
+    _safe_write(ws, "M30", "1")
+
+    # Серия и номер паспорта: строка 32, начиная с K
+    passport = data.get("passport", "")
+    if len(passport) == 10:
+        from openpyxl.utils import get_column_letter
+        col = 11  # K
+        for digit in passport:
+            col_letter = get_column_letter(col)
+            _safe_write(ws, f"{col_letter}32", digit)
+            col += 2
+
+    # Код статуса: BI28 = "1"
+    _safe_write(ws, "BI28", "1")
+
+    # Телефон: U39, W39, Y39, AA39 ... BG39
+    phone = data.get("taxpayer_phone", "")
+    _write_fio_field(ws, phone, 21, 39)  # U = 21-я колонка
+
+    # Достоверность подтверждаю: B37 = "1"
     _safe_write(ws, "B37", "1")
+
+
+def _write_fio_field(ws, text, start_col, row):
+    """Записывает текст по буквам в объединённые пары ячеек."""
+    from openpyxl.utils import get_column_letter
+    col = start_col
+    for char in text:
+        if col > 60:  # ограничение — не выходим за пределы
+            break
+        col_letter = get_column_letter(col)
+        _safe_write(ws, f"{col_letter}{row}", char.upper())
+        col += 2
 
 
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
-    _fill_inn_on_sheet(ws, data.get("taxpayer_inn", ""))
+    _write_inn(ws, data.get("taxpayer_inn", ""))
     _safe_write(ws, "D20", "18210102010011000110")
     tax_return = data.get("tax_return", 0)
     _safe_write(ws, "D50", str(round(tax_return)))
@@ -57,7 +167,7 @@ def _fill_section1(wb, data):
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-    _fill_inn_on_sheet(ws, data.get("taxpayer_inn", ""))
+    _write_inn(ws, data.get("taxpayer_inn", ""))
     _safe_write(ws, "D1", "1")
     deduction = data.get("deduction_amount", 0)
     _safe_write(ws, "D40", f"{deduction:,.2f}")
@@ -67,7 +177,7 @@ def _fill_section2(wb, data):
 
 def _fill_appendix5(wb, data):
     ws = wb["Прил.5"]
-    _fill_inn_on_sheet(ws, data.get("taxpayer_inn", ""))
+    _write_inn(ws, data.get("taxpayer_inn", ""))
     deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
 
@@ -82,19 +192,6 @@ def _fill_appendix5(wb, data):
 
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
-    _fill_inn_on_sheet(ws, data.get("taxpayer_inn", ""))
+    _write_inn(ws, data.get("taxpayer_inn", ""))
     tax_return = data.get("tax_return", 0)
     _safe_write(ws, "D10", str(round(tax_return)))
-
-
-def _fill_inn_on_sheet(ws, inn):
-    if not inn:
-        return
-    for i, digit in enumerate(inn[:12]):
-        col_idx = 10 + (i % 4)
-        row = 1 + (i // 4)
-        col_letter = chr(64 + col_idx) if col_idx <= 26 else "A" + chr(64 + col_idx - 26)
-        try:
-            _safe_write(ws, f"{col_letter}{row}", digit)
-        except Exception:
-            pass
