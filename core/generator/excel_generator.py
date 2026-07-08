@@ -1,6 +1,7 @@
 import os
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.utils import get_column_letter
 from bot.config import DATA_TEMP_DIR
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,7 +11,6 @@ TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
     excel_path = os.path.join(DATA_TEMP_DIR, f"declaration_{declaration_id}.xlsx")
-
     wb = load_workbook(TEMPLATE_PATH)
 
     _fill_title(wb, data)
@@ -24,6 +24,7 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
 
 
 def _safe_write(ws, cell_ref, value):
+    value = str(value) if value is not None else ""
     cell = ws[cell_ref]
     if isinstance(cell, MergedCell):
         for merged_range in ws.merged_cells.ranges:
@@ -36,26 +37,24 @@ def _safe_write(ws, cell_ref, value):
 
 
 def _write_inn(ws, inn):
-    """Записывает 12 цифр ИНН в объединённые пары ячеек Y1-Z1, AA1-AB1, ..."""
-    if not inn or len(inn) < 12:
+    inn = str(inn) if inn else ""
+    if len(inn) < 12:
         return
-    # Колонки: Y=25, AA=27, AC=29, AE=31, AG=33, AI=35, AK=37, AM=39, AO=41, AQ=43, AS=45, AU=47
     cols = [25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47]
-    from openpyxl.utils import get_column_letter
     for i, digit in enumerate(inn[:12]):
         col_letter = get_column_letter(cols[i])
         _safe_write(ws, f"{col_letter}1", digit)
 
 
-def _write_fio(ws, last_name, first_name, middle_name, start_col, row):
-    """Записывает ФИО по буквам в объединённые пары ячеек."""
-    text = (last_name + " " + first_name + " " + middle_name).strip()
-    from openpyxl.utils import get_column_letter
+def _write_fio_field(ws, text, start_col, row):
+    text = str(text) if text else ""
     col = start_col
     for char in text:
+        if col > 60:
+            break
         col_letter = get_column_letter(col)
         _safe_write(ws, f"{col_letter}{row}", char.upper())
-        col += 2  # каждая буква в паре объединённых ячеек
+        col += 2
 
 
 def _fill_title(wb, data):
@@ -64,52 +63,52 @@ def _fill_title(wb, data):
     # ИНН
     _write_inn(ws, data.get("taxpayer_inn", ""))
 
-    # Номер корректировки: K11, M11, O11
+    # Номер корректировки
     _safe_write(ws, "K11", "0")
     _safe_write(ws, "M11", "0")
     _safe_write(ws, "O11", "0")
 
-    # Налоговый период: AC11, AE11 = "34"
+    # Налоговый период
     _safe_write(ws, "AC11", "3")
     _safe_write(ws, "AE11", "4")
 
-    # Отчётный год: AU11, AW11, AY11, BA11
-    year = data.get("year", "")
+    # Отчётный год
+    year = str(data.get("year", ""))
     if len(year) >= 4:
         _safe_write(ws, "AU11", year[0])
         _safe_write(ws, "AW11", year[1])
         _safe_write(ws, "AY11", year[2])
         _safe_write(ws, "BA11", year[3])
 
-    # Код налогового органа: BU11, BW11, BY11, CA11
-    tax_office = data.get("tax_office", "")
+    # Код налогового органа
+    tax_office = str(data.get("tax_office", ""))
     if len(tax_office) >= 4:
         _safe_write(ws, "BU11", tax_office[0])
         _safe_write(ws, "BW11", tax_office[1])
         _safe_write(ws, "BY11", tax_office[2])
         _safe_write(ws, "CA11", tax_office[3])
 
-    # Код страны: K16, M16, O16 = "643"
+    # Код страны
     _safe_write(ws, "K16", "6")
     _safe_write(ws, "M16", "4")
     _safe_write(ws, "O16", "3")
 
-    # Код категории: AU16, AW16, AY16 = "760"
+    # Код категории
     _safe_write(ws, "AU16", "7")
     _safe_write(ws, "AW16", "6")
     _safe_write(ws, "AY16", "0")
 
-    # Фамилия: строка 18, начиная с K
+    # Фамилия
     _write_fio_field(ws, data.get("last_name", ""), 11, 18)
 
-    # Имя: строка 20, начиная с K
+    # Имя
     _write_fio_field(ws, data.get("first_name", ""), 11, 20)
 
-    # Отчество: строка 22, начиная с K
+    # Отчество
     _write_fio_field(ws, data.get("middle_name", ""), 11, 22)
 
-    # Дата рождения: строка 28, K, M, O, Q (ДД), S, U (ММ), W, Y (ГГГГ)
-    birth_date = data.get("birth_date", "")
+    # Дата рождения
+    birth_date = str(data.get("birth_date", ""))
     if len(birth_date) == 10:
         _safe_write(ws, "K28", birth_date[0])
         _safe_write(ws, "M28", birth_date[1])
@@ -120,41 +119,27 @@ def _fill_title(wb, data):
         _safe_write(ws, "W28", birth_date[8])
         _safe_write(ws, "Y28", birth_date[9])
 
-    # Код вида документа: 21 (паспорт РФ) — строка 30, K30, M30
+    # Код вида документа — паспорт РФ
     _safe_write(ws, "K30", "2")
     _safe_write(ws, "M30", "1")
 
-    # Серия и номер паспорта: строка 32, начиная с K
-    passport = data.get("passport", "")
+    # Серия и номер паспорта
+    passport = str(data.get("passport", ""))
     if len(passport) == 10:
-        from openpyxl.utils import get_column_letter
-        col = 11  # K
+        col = 11
         for digit in passport:
             col_letter = get_column_letter(col)
             _safe_write(ws, f"{col_letter}32", digit)
             col += 2
 
-    # Код статуса: BI28 = "1"
+    # Код статуса
     _safe_write(ws, "BI28", "1")
 
-    # Телефон: U39, W39, Y39, AA39 ... BG39
-    phone = data.get("taxpayer_phone", "")
-    _write_fio_field(ws, phone, 21, 39)  # U = 21-я колонка
+    # Телефон
+    _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
 
-    # Достоверность подтверждаю: B37 = "1"
+    # Достоверность подтверждаю
     _safe_write(ws, "B37", "1")
-
-
-def _write_fio_field(ws, text, start_col, row):
-    """Записывает текст по буквам в объединённые пары ячеек."""
-    from openpyxl.utils import get_column_letter
-    col = start_col
-    for char in text:
-        if col > 60:  # ограничение — не выходим за пределы
-            break
-        col_letter = get_column_letter(col)
-        _safe_write(ws, f"{col_letter}{row}", char.upper())
-        col += 2
 
 
 def _fill_section1(wb, data):
