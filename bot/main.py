@@ -6,7 +6,8 @@ from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
-from bot.config import BOT_TOKEN, DATA_TEMP_DIR
+from aiogram.types import BotCommand
+from bot.config import BOT_TOKEN, DATA_TEMP_DIR, ADMIN_IDS
 from bot.middlewares.access import AccessMiddleware
 from bot.handlers.user.start import router as user_start_router
 from bot.handlers.user.upload import router as user_upload_router
@@ -17,6 +18,15 @@ from core.models import init_db
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+async def set_commands(bot: Bot):
+    commands = [
+        BotCommand(command="start", description="🔄 Перезапуск бота"),
+        BotCommand(command="help", description="❓ Помощь и инструкция"),
+        BotCommand(command="status", description="📊 Мой тариф и остаток"),
+    ]
+    await bot.set_my_commands(commands)
 
 
 async def main():
@@ -36,6 +46,7 @@ async def main():
     dp.include_router(admin_panel_router)
     dp.include_router(admin_access_router)
 
+    await set_commands(bot)
     logger.info("Бот запущен")
     await dp.start_polling(bot)
 
