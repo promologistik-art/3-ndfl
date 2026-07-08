@@ -21,6 +21,8 @@ class UploadStates(StatesGroup):
     waiting_for_manual_name = State()
     waiting_for_manual_inn = State()
     waiting_for_manual_amount = State()
+    waiting_for_taxpayer_inn = State()
+    waiting_for_taxpayer_phone = State()
 
 
 @router.callback_query(F.data == "menu_upload")
@@ -123,7 +125,6 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, us
         await callback.answer("Этот тип вычета пока в разработке", show_alert=True)
         return
 
-    # Отправляем новое сообщение вместо редактирования старого
     await callback.message.answer(
         f"Для расчёта {_deduction_name(deduction_type)} нужны данные об учреждении.\n\n"
         f"Вы можете загрузить фото договора/справки или ввести данные вручную.",
@@ -252,6 +253,32 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
+    # Запрашиваем ИНН налогоплательщика
+    await callback.message.answer(
+        "📝 Для заполнения декларации нужны ваши данные.\n\n"
+        "Введите ваш ИНН (12 цифр):"
+    )
+    await state.set_state(UploadStates.waiting_for_taxpayer_inn)
+    await callback.answer()
+
+
+@router.message(UploadStates.waiting_for_taxpayer_inn)
+async def taxpayer_inn(message: Message, state: FSMContext):
+    inn = message.text.strip()
+    if not inn.isdigit() or len(inn) != 12:
+        await message.answer("❌ ИНН должен содержать 12 цифр. Попробуйте ещё раз:")
+        return
+
+    await state.update_data(taxpayer_inn=inn)
+    await message.answer("📱 Введите ваш номер телефона (в любом формате):")
+    await state.set_state(UploadStates.waiting_for_taxpayer_phone)
+
+
+@router.message(UploadStates.waiting_for_taxpayer_phone)
+async def taxpayer_phone(message: Message, state: FSMContext, user: User = None):
+    phone = message.text.strip()
+    await state.update_data(taxpayer_phone=phone)
+
     data = await state.get_data()
     deduction_type = data.get("deduction_type", "medical")
     institution_name = data.get("institution_name", "")
@@ -265,7 +292,7 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         institution_inn=institution_inn
     )
 
-    await callback.message.answer(
+    await message.answer(
         f"📊 Результат расчёта:\n\n"
         f"🏢 Учреждение: <b>{institution_name}</b>\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
@@ -300,13 +327,18 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         finally:
             session2.close()
 
-        await callback.message.answer(
+        await message.answer(
             "⚠️ У вас демо-доступ. Скачивание PDF и XML недоступно.\n"
             "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>"
         )
     else:
-        pdf_path = await generate_pdf(declaration_id, calculated)
-        xml_path = await generate_xml(declaration_id, calculated)
+        pdf_data = {
+            **calculated,
+            "taxpayer_inn": data.get("taxpayer_inn", ""),
+            "taxpayer_phone": data.get("taxpayer_phone", ""),
+        }
+        pdf_path = await generate_pdf(declaration_id, pdf_data)
+        xml_path = await generate_xml(declaration_id, pdf_data)
 
         session3 = next(get_session())
         try:
@@ -318,7 +350,7 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         finally:
             session3.close()
 
-        await callback.message.answer(
+        await message.answer(
             "✅ Декларация готова! Выберите формат для скачивания:",
             reply_markup=download_kb(declaration_id)
         )
@@ -332,7 +364,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
             session4.close()
 
     await state.clear()
-    await callback.answer()
 
 
 @router.callback_query(F.data == "confirm_no")
