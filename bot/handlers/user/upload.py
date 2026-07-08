@@ -21,6 +21,12 @@ class UploadStates(StatesGroup):
     waiting_for_manual_inn = State()
     waiting_for_manual_amount = State()
     waiting_for_taxpayer_inn = State()
+    waiting_for_last_name = State()
+    waiting_for_first_name = State()
+    waiting_for_middle_name = State()
+    waiting_for_birth_date = State()
+    waiting_for_passport = State()
+    waiting_for_tax_office = State()
     waiting_for_taxpayer_phone = State()
 
 
@@ -268,6 +274,61 @@ async def taxpayer_inn(message: Message, state: FSMContext):
         return
 
     await state.update_data(taxpayer_inn=inn)
+    await message.answer("Введите вашу фамилию:")
+    await state.set_state(UploadStates.waiting_for_last_name)
+
+
+@router.message(UploadStates.waiting_for_last_name)
+async def last_name(message: Message, state: FSMContext):
+    await state.update_data(last_name=message.text.strip().upper())
+    await message.answer("Введите ваше имя:")
+    await state.set_state(UploadStates.waiting_for_first_name)
+
+
+@router.message(UploadStates.waiting_for_first_name)
+async def first_name(message: Message, state: FSMContext):
+    await state.update_data(first_name=message.text.strip().upper())
+    await message.answer("Введите ваше отчество (если нет — поставьте прочерк):")
+    await state.set_state(UploadStates.waiting_for_middle_name)
+
+
+@router.message(UploadStates.waiting_for_middle_name)
+async def middle_name(message: Message, state: FSMContext):
+    await state.update_data(middle_name=message.text.strip().upper())
+    await message.answer("Введите дату рождения в формате ДД.ММ.ГГГГ:")
+    await state.set_state(UploadStates.waiting_for_birth_date)
+
+
+@router.message(UploadStates.waiting_for_birth_date)
+async def birth_date(message: Message, state: FSMContext):
+    import re
+    text = message.text.strip()
+    if not re.match(r"^\d{2}\.\d{2}\.\d{4}$", text):
+        await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
+        return
+    await state.update_data(birth_date=text)
+    await message.answer("Введите серию и номер паспорта (4 цифры серии и 6 цифр номера, слитно):\nНапример: 4510123456")
+    await state.set_state(UploadStates.waiting_for_passport)
+
+
+@router.message(UploadStates.waiting_for_passport)
+async def passport(message: Message, state: FSMContext):
+    text = message.text.strip().replace(" ", "")
+    if not text.isdigit() or len(text) != 10:
+        await message.answer("❌ Должно быть 10 цифр. Введите серию и номер слитно:")
+        return
+    await state.update_data(passport=text)
+    await message.answer("Введите код налогового органа (4 цифры):")
+    await state.set_state(UploadStates.waiting_for_tax_office)
+
+
+@router.message(UploadStates.waiting_for_tax_office)
+async def tax_office(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or len(text) != 4:
+        await message.answer("❌ Код налогового органа — 4 цифры. Попробуйте ещё раз:")
+        return
+    await state.update_data(tax_office=text)
     await message.answer("📱 Введите ваш номер телефона (в любом формате):")
     await state.set_state(UploadStates.waiting_for_taxpayer_phone)
 
@@ -333,6 +394,12 @@ async def taxpayer_phone(message: Message, state: FSMContext, user: User = None)
         pdf_data = {
             **calculated,
             "taxpayer_inn": data.get("taxpayer_inn", ""),
+            "last_name": data.get("last_name", ""),
+            "first_name": data.get("first_name", ""),
+            "middle_name": data.get("middle_name", ""),
+            "birth_date": data.get("birth_date", ""),
+            "passport": data.get("passport", ""),
+            "tax_office": data.get("tax_office", ""),
             "taxpayer_phone": data.get("taxpayer_phone", ""),
         }
         excel_path = await generate_excel(declaration_id, pdf_data)
