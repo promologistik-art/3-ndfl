@@ -302,7 +302,7 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
 
         await callback.message.answer(
             "⚠️ У вас демо-доступ. Скачивание PDF и XML недоступно.\n"
-            "Для получения полного доступа свяжитесь с администратором."
+            "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>"
         )
     else:
         pdf_path = await generate_pdf(declaration_id, calculated)

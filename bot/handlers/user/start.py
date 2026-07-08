@@ -1,15 +1,21 @@
 from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
-from core.models import User
+from aiogram.fsm.context import FSMContext
+from datetime import datetime, timezone
+from core.models import User, Declaration, get_session
 from bot.keyboards.user import main_menu_kb
 from bot.config import ADMIN_IDS
+from sqlalchemy import select, func
 
 router = Router()
 
 
 @router.message(Command("start"))
-async def cmd_start(message: Message, user: User = None):
+async def cmd_start(message: Message, state: FSMContext, user: User = None):
+    # Сбрасываем все состояния
+    await state.clear()
+
     if not user:
         await message.answer("Ошибка. Попробуйте позже.")
         return
@@ -22,6 +28,61 @@ async def cmd_start(message: Message, user: User = None):
         f"Загрузите банковскую выписку, а я найду подходящие платежи и запрошу недостающие данные."
     )
     await message.answer(text, reply_markup=main_menu_kb())
+
+
+@router.message(Command("help"))
+async def cmd_help(message: Message, user: User = None):
+    text = (
+        "❓ <b>Помощь</b>\n\n"
+        "Я бот для расчёта налоговых вычетов и заполнения декларации 3-НДФЛ.\n\n"
+        "<b>Какие вычеты поддерживаются:</b>\n"
+        "🏥 Медицинские услуги\n"
+        "🎓 Обучение\n"
+        "📈 Инвестиционный вычет (в разработке)\n"
+        "🏠 Имущественный вычет (в разработке)\n\n"
+        "<b>Как пользоваться:</b>\n"
+        "1. Загрузите банковскую выписку (PDF или Excel)\n"
+        "2. Бот найдёт подходящие платежи\n"
+        "3. При необходимости загрузите фото договора/справки\n"
+        "4. Проверьте данные и получите расчёт\n\n"
+        "<b>Тарифы:</b>\n"
+        "🆓 Демо — 1 декларация, только расчёт\n"
+        "📅 Месячный — 1 декларация в месяц, 100₽\n"
+        "♾️ Безлимит — неограниченно, 500₽\n\n"
+        "📩 По вопросам доступа: <b>@silverzen</b>"
+    )
+    await message.answer(text)
+
+
+@router.message(Command("status"))
+async def cmd_status(message: Message, user: User = None):
+    if not user:
+        await message.answer("Ошибка. Попробуйте позже.")
+        return
+
+    session = next(get_session())
+    try:
+        total_decls = session.scalar(
+            select(func.count(Declaration.id)).where(Declaration.user_id == user.id)
+        )
+    finally:
+        session.close()
+
+    expires_text = ""
+    if user.access_type == "monthly" and user.access_expires:
+        now = datetime.now(timezone.utc)
+        expires = user.access_expires.replace(tzinfo=timezone.utc)
+        days_left = (expires - now).days
+        expires_text = f"\n⏳ Дней до конца подписки: <b>{max(0, days_left)}</b>"
+
+    text = (
+        f"📊 <b>Ваш статус</b>\n\n"
+        f"📌 Тариф: <b>{_access_text(user.access_type)}</b>{expires_text}\n"
+        f"📄 Всего деклараций: <b>{total_decls}</b>\n"
+        f"📝 Осталось: <b>{_remaining_text(user)}</b>\n\n"
+        f"📩 По вопросам доступа: <b>@silverzen</b>"
+    )
+    await message.answer(text)
 
 
 @router.callback_query(F.data == "menu_back")
