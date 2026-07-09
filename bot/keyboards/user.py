@@ -41,6 +41,15 @@ def confirm_data_kb() -> InlineKeyboardMarkup:
     )
 
 
+def remember_me_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💾 Да, запомнить", callback_data="remember_yes")],
+            [InlineKeyboardButton(text="👤 Нет, только сейчас", callback_data="remember_no")],
+        ]
+    )
+
+
 def download_kb(declaration_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

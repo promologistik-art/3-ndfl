@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.models import User, Declaration, get_session
 from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ADMIN_IDS
-from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb
+from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb, remember_me_kb
 from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
 from core.generator.excel_generator import generate_excel
@@ -20,6 +20,7 @@ class UploadStates(StatesGroup):
     waiting_for_manual_name = State()
     waiting_for_manual_inn = State()
     waiting_for_manual_amount = State()
+    waiting_for_remember = State()
     waiting_for_taxpayer_inn = State()
     waiting_for_last_name = State()
     waiting_for_first_name = State()
@@ -109,7 +110,11 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
     response += "\nВыберите тип вычета для расчёта:"
 
-    await state.update_data(parsed_payments=parsed_payments)
+    await state.update_data(
+        parsed_payments=parsed_payments,
+        medical_total=sum(p["amount"] for p in medical),
+        education_total=sum(p["amount"] for p in education),
+    )
     await message.answer(response, reply_markup=deduction_type_kb())
     await state.clear()
 
@@ -130,12 +135,20 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, us
         await callback.answer("Этот тип вычета пока в разработке", show_alert=True)
         return
 
+    data = await state.get_data()
+    # Сохраняем сумму сразу при выборе типа вычета
+    if deduction_type == "medical":
+        total_amount = data.get("medical_total", 0)
+    else:
+        total_amount = data.get("education_total", 0)
+
+    await state.update_data(deduction_type=deduction_type, total_amount=total_amount)
+
     await callback.message.answer(
         f"Для расчёта {_deduction_name(deduction_type)} нужны данные об учреждении.\n\n"
         f"Вы можете загрузить фото договора/справки или ввести данные вручную.",
         reply_markup=confirm_manual_input_kb()
     )
-    await state.update_data(deduction_type=deduction_type)
     await state.set_state(UploadStates.waiting_for_photo)
     await callback.answer()
 
@@ -177,23 +190,18 @@ async def handle_photo(message: Message, state: FSMContext):
         await message.answer("Введите наименование учреждения:")
         return
 
-    data = await state.get_data()
-    payments = data.get("parsed_payments", [])
-    deduction_type = data.get("deduction_type", "medical")
-    category_payments = [p for p in payments if p["category"] == deduction_type]
-    total_sum = sum(p["amount"] for p in category_payments)
-
     await state.update_data(
         institution_name=result.get("name"),
         institution_inn=result.get("inn"),
-        total_amount=total_sum
     )
+
+    total_amount = (await state.get_data()).get("total_amount", 0)
 
     await message.answer(
         f"📋 Проверьте распознанные данные:\n\n"
         f"🏢 Учреждение: <b>{result.get('name')}</b>\n"
         f"🔢 ИНН: <b>{result.get('inn')}</b>\n"
-        f"💰 Сумма: <b>{total_sum:,.2f} ₽</b>\n\n"
+        f"💰 Сумма: <b>{total_amount:,.2f} ₽</b>\n\n"
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
@@ -218,30 +226,30 @@ async def manual_inn(message: Message, state: FSMContext):
     await state.update_data(institution_inn=message.text)
 
     data = await state.get_data()
-    payments = data.get("parsed_payments", [])
-    deduction_type = data.get("deduction_type", "medical")
-    category_payments = [p for p in payments if p["category"] == deduction_type]
-    total_sum = sum(p["amount"] for p in category_payments)
+    total_amount = data.get("total_amount", 0)
 
     await message.answer(
-        f"💰 Общая сумма платежей по категории: <b>{total_sum:,.2f} ₽</b>\n\n"
-        f"Введите сумму расходов (можно изменить):"
+        f"💰 Сумма расходов по выписке: <b>{total_amount:,.2f} ₽</b>\n\n"
+        f"Введите сумму расходов (или нажмите Enter чтобы оставить как есть):"
     )
-    await state.update_data(total_amount=total_sum)
     await state.set_state(UploadStates.waiting_for_manual_amount)
 
 
 @router.message(UploadStates.waiting_for_manual_amount)
 async def manual_amount(message: Message, state: FSMContext):
-    try:
-        amount = float(message.text.replace(",", ".").replace(" ", ""))
-    except ValueError:
-        await message.answer("❌ Введите число.")
-        return
+    text = message.text.strip()
+    if text:
+        try:
+            amount = float(text.replace(",", ".").replace(" ", ""))
+        except ValueError:
+            await message.answer("❌ Введите число.")
+            return
+    else:
+        amount = (await state.get_data()).get("total_amount", 0)
 
-    data = await state.get_data()
     await state.update_data(total_amount=amount)
 
+    data = await state.get_data()
     await message.answer(
         f"📋 Проверьте введённые данные:\n\n"
         f"🏢 Учреждение: <b>{data.get('institution_name')}</b>\n"
@@ -258,10 +266,51 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
+    # Проверяем, есть ли сохранённые данные
+    if user.inn and user.last_name:
+        await callback.message.answer(
+            "📝 У вас есть сохранённые данные. Использовать их?",
+            reply_markup=remember_me_kb()
+        )
+        await state.set_state(UploadStates.waiting_for_remember)
+        await callback.answer()
+        return
+
+    # Нет сохранённых данных — запрашиваем ИНН
     await callback.message.answer(
         "📝 Для заполнения декларации нужны ваши данные.\n\n"
         "Введите ваш ИНН (12 цифр):"
     )
+    await state.set_state(UploadStates.waiting_for_taxpayer_inn)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "remember_yes", UploadStates.waiting_for_remember)
+async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = None):
+    if not user:
+        await callback.answer("Ошибка")
+        return
+
+    # Заполняем state из профиля
+    await state.update_data(
+        taxpayer_inn=user.inn,
+        last_name=user.last_name,
+        first_name=user.first_name,
+        middle_name=user.middle_name,
+        birth_date=user.birth_date,
+        passport=user.passport,
+        tax_office=user.tax_office,
+        taxpayer_phone=user.phone,
+    )
+
+    await callback.message.answer("✅ Данные загружены из профиля. Выполняю расчёт...")
+    await _do_calculation(callback.message, state, user)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "remember_no", UploadStates.waiting_for_remember)
+async def remember_no(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Введите ваш ИНН (12 цифр):")
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
     await callback.answer()
 
@@ -307,7 +356,7 @@ async def birth_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(birth_date=text)
-    await message.answer("Введите серию и номер паспорта (4 цифры серии и 6 цифр номера, слитно):\nНапример: 4510123456")
+    await message.answer("Введите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
     await state.set_state(UploadStates.waiting_for_passport)
 
 
@@ -318,7 +367,11 @@ async def passport(message: Message, state: FSMContext):
         await message.answer("❌ Должно быть 10 цифр. Введите серию и номер слитно:")
         return
     await state.update_data(passport=text)
-    await message.answer("Введите код налогового органа (4 цифры):")
+    await message.answer(
+        "Введите код налогового органа (4 цифры).\n\n"
+        "ℹ️ Код можно найти в личном кабинете ФНС (lkn.nalog.ru) или на сайте nalog.ru "
+        "в разделе «Контакты вашей инспекции»."
+    )
     await state.set_state(UploadStates.waiting_for_tax_office)
 
 
@@ -338,6 +391,17 @@ async def taxpayer_phone(message: Message, state: FSMContext, user: User = None)
     phone = message.text.strip()
     await state.update_data(taxpayer_phone=phone)
 
+    # Кнопка «Запомнить меня» — сохраняем в профиль
+    await message.answer(
+        "💾 Сохранить введённые данные в профиль для следующих деклараций?",
+        reply_markup=remember_me_kb()
+    )
+    await state.set_state(UploadStates.waiting_for_remember)
+    # Но уже вызываем расчёт
+    await _do_calculation(message, state, user)
+
+
+async def _do_calculation(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
     deduction_type = data.get("deduction_type", "medical")
     institution_name = data.get("institution_name", "")
