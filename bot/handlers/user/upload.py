@@ -19,12 +19,9 @@ class UploadStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_manual_name = State()
     waiting_for_manual_inn = State()
-    waiting_for_manual_amount = State()
     waiting_for_remember = State()
     waiting_for_taxpayer_inn = State()
-    waiting_for_last_name = State()
-    waiting_for_first_name = State()
-    waiting_for_middle_name = State()
+    waiting_for_fio = State()
     waiting_for_birth_date = State()
     waiting_for_passport = State()
     waiting_for_tax_office = State()
@@ -193,7 +190,8 @@ async def handle_photo(message: Message, state: FSMContext):
         institution_inn=result.get("inn"),
     )
 
-    total_amount = (await state.get_data()).get("total_amount", 0)
+    data = await state.get_data()
+    total_amount = data.get("total_amount", 0)
 
     await message.answer(
         f"📋 Проверьте распознанные данные:\n\n"
@@ -227,32 +225,10 @@ async def manual_inn(message: Message, state: FSMContext):
     total_amount = data.get("total_amount", 0)
 
     await message.answer(
-        f"💰 Сумма расходов по выписке: <b>{total_amount:,.2f} ₽</b>\n\n"
-        f"Введите сумму расходов (или нажмите Enter чтобы оставить как есть):"
-    )
-    await state.set_state(UploadStates.waiting_for_manual_amount)
-
-
-@router.message(UploadStates.waiting_for_manual_amount)
-async def manual_amount(message: Message, state: FSMContext):
-    text = message.text.strip()
-    if text:
-        try:
-            amount = float(text.replace(",", ".").replace(" ", ""))
-        except ValueError:
-            await message.answer("❌ Введите число.")
-            return
-    else:
-        amount = (await state.get_data()).get("total_amount", 0)
-
-    await state.update_data(total_amount=amount)
-
-    data = await state.get_data()
-    await message.answer(
         f"📋 Проверьте введённые данные:\n\n"
         f"🏢 Учреждение: <b>{data.get('institution_name')}</b>\n"
         f"🔢 ИНН: <b>{data.get('institution_inn')}</b>\n"
-        f"💰 Сумма: <b>{amount:,.2f} ₽</b>\n\n"
+        f"💰 Сумма: <b>{total_amount:,.2f} ₽</b>\n\n"
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
@@ -275,14 +251,13 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
 
     await callback.message.answer(
         "📝 Для заполнения декларации нужны ваши данные:\n\n"
-        "1. ИНН\n"
-        "2. Фамилия\n"
-        "3. Имя\n"
-        "4. Отчество\n"
-        "5. Дата рождения в формате ДД.ММ.ГГГГ\n"
-        "6. Серия и номер паспорта (10 цифр)\n"
-        "7. Код налогового органа (4 цифры)\n\n"
-        "▸ Шаг 1 из 7\n"
+        "1. ИНН (12 цифр)\n"
+        "2. ФИО (Фамилия Имя Отчество)\n"
+        "3. Дата рождения (ДД.ММ.ГГГГ)\n"
+        "4. Серия и номер паспорта (10 цифр слитно)\n"
+        "5. Код налогового органа (4 цифры)\n"
+        "6. Номер телефона\n\n"
+        "▸ Шаг 1 из 6\n"
         "Введите ваш ИНН (12 цифр):"
     )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
@@ -315,14 +290,13 @@ async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = 
 async def remember_no(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(
         "📝 Для заполнения декларации нужны ваши данные:\n\n"
-        "1. ИНН\n"
-        "2. Фамилия\n"
-        "3. Имя\n"
-        "4. Отчество\n"
-        "5. Дата рождения в формате ДД.ММ.ГГГГ\n"
-        "6. Серия и номер паспорта (10 цифр)\n"
-        "7. Код налогового органа (4 цифры)\n\n"
-        "▸ Шаг 1 из 7\n"
+        "1. ИНН (12 цифр)\n"
+        "2. ФИО (Фамилия Имя Отчество)\n"
+        "3. Дата рождения (ДД.ММ.ГГГГ)\n"
+        "4. Серия и номер паспорта (10 цифр слитно)\n"
+        "5. Код налогового органа (4 цифры)\n"
+        "6. Номер телефона\n\n"
+        "▸ Шаг 1 из 6\n"
         "Введите ваш ИНН (12 цифр):"
     )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
@@ -337,28 +311,23 @@ async def taxpayer_inn(message: Message, state: FSMContext):
         return
 
     await state.update_data(taxpayer_inn=inn)
-    await message.answer("▸ Шаг 2 из 7\nВведите вашу фамилию:")
-    await state.set_state(UploadStates.waiting_for_last_name)
+    await message.answer("▸ Шаг 2 из 6\nВведите ваше ФИО полностью (Фамилия Имя Отчество):")
+    await state.set_state(UploadStates.waiting_for_fio)
 
 
-@router.message(UploadStates.waiting_for_last_name)
-async def last_name(message: Message, state: FSMContext):
-    await state.update_data(last_name=message.text.strip().upper())
-    await message.answer("▸ Шаг 3 из 7\nВведите ваше имя:")
-    await state.set_state(UploadStates.waiting_for_first_name)
+@router.message(UploadStates.waiting_for_fio)
+async def fio(message: Message, state: FSMContext):
+    parts = message.text.strip().split()
+    if len(parts) < 2:
+        await message.answer("❌ Введите минимум фамилию и имя через пробел:")
+        return
 
+    last_name = parts[0].upper()
+    first_name = parts[1].upper()
+    middle_name = parts[2].upper() if len(parts) > 2 else "-"
 
-@router.message(UploadStates.waiting_for_first_name)
-async def first_name(message: Message, state: FSMContext):
-    await state.update_data(first_name=message.text.strip().upper())
-    await message.answer("▸ Шаг 4 из 7\nВведите ваше отчество (если нет — поставьте прочерк):")
-    await state.set_state(UploadStates.waiting_for_middle_name)
-
-
-@router.message(UploadStates.waiting_for_middle_name)
-async def middle_name(message: Message, state: FSMContext):
-    await state.update_data(middle_name=message.text.strip().upper())
-    await message.answer("▸ Шаг 5 из 7\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
+    await state.update_data(last_name=last_name, first_name=first_name, middle_name=middle_name)
+    await message.answer("▸ Шаг 3 из 6\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_birth_date)
 
 
@@ -370,7 +339,7 @@ async def birth_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(birth_date=text)
-    await message.answer("▸ Шаг 6 из 7\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
+    await message.answer("▸ Шаг 4 из 6\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
     await state.set_state(UploadStates.waiting_for_passport)
 
 
@@ -382,7 +351,7 @@ async def passport(message: Message, state: FSMContext):
         return
     await state.update_data(passport=text)
     await message.answer(
-        "▸ Шаг 7 из 7\nВведите код налогового органа (4 цифры).\n\n"
+        "▸ Шаг 5 из 6\nВведите код налогового органа (4 цифры).\n\n"
         "ℹ️ Код можно найти в личном кабинете ФНС (lkn.nalog.ru) или на сайте nalog.ru "
         "в разделе «Контакты вашей инспекции»."
     )
@@ -396,7 +365,7 @@ async def tax_office(message: Message, state: FSMContext):
         await message.answer("❌ Код налогового органа — 4 цифры. Попробуйте ещё раз:")
         return
     await state.update_data(tax_office=text)
-    await message.answer("📱 Введите ваш номер телефона (в любом формате):")
+    await message.answer("▸ Шаг 6 из 6\n📱 Введите ваш номер телефона (в любом формате):")
     await state.set_state(UploadStates.waiting_for_taxpayer_phone)
 
 
