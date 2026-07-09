@@ -37,16 +37,6 @@ def _safe_write(ws, cell_ref, value):
         cell.value = value
 
 
-def _write_inn(ws, inn):
-    inn = str(inn) if inn else ""
-    if len(inn) < 12:
-        return
-    cols = [25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47]
-    for i, digit in enumerate(inn[:12]):
-        col_letter = get_column_letter(cols[i])
-        _safe_write(ws, f"{col_letter}1", digit)
-
-
 def _write_fio_field(ws, text, start_col, row):
     text = str(text) if text else ""
     col = start_col
@@ -57,6 +47,18 @@ def _write_fio_field(ws, text, start_col, row):
         _safe_write(ws, f"{col_letter}{row}", char.upper())
         col += 2
 
+
+def _write_number_field(ws, text, start_col, row):
+    """Записывает число по цифрам в объединённые пары ячеек."""
+    text = str(text) if text else ""
+    col = start_col
+    for char in text:
+        col_letter = get_column_letter(col)
+        _safe_write(ws, f"{col_letter}{row}", char)
+        col += 2
+
+
+# ==================== ТИТУЛЬНЫЙ ЛИСТ ====================
 
 def _fill_title(wb, data):
     ws = wb["Титульный лист"]
@@ -173,17 +175,78 @@ def _fill_title(wb, data):
     _safe_write(ws, "AN56", today[7])
 
 
+def _write_inn(ws, inn):
+    inn = str(inn) if inn else ""
+    if len(inn) < 12:
+        return
+    cols = [25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 47]
+    for i, digit in enumerate(inn[:12]):
+        col_letter = get_column_letter(cols[i])
+        _safe_write(ws, f"{col_letter}1", digit)
+
+
+# ==================== РАЗДЕЛ 1 ====================
+
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
-    _write_inn(ws, data.get("taxpayer_inn", ""))
-    _safe_write(ws, "D20", "18210102010011000110")
-    tax_return = data.get("tax_return", 0)
-    _safe_write(ws, "D50", str(round(tax_return)))
 
+    # ИНН — не заполняем, формула сама подтягивает
+
+    # Номер страницы: X4, Y4, Z4 = "0", "0", "2"
+    _safe_write(ws, "X4", "0")
+    _safe_write(ws, "Y4", "0")
+    _safe_write(ws, "Z4", "2")
+
+    # Фамилия: E7-AF7
+    last_name = str(data.get("last_name", ""))
+    if last_name:
+        for i, char in enumerate(last_name):
+            col = 5 + i * 2  # E=5
+            if col > 32:
+                break
+            col_letter = get_column_letter(col)
+            _safe_write(ws, f"{col_letter}7", char.upper())
+
+    # И. (первая буква имени): AH7
+    first_name = str(data.get("first_name", ""))
+    if first_name:
+        _safe_write(ws, "AH7", first_name[0].upper() + ".")
+
+    # О. (первая буква отчества): AK7
+    middle_name = str(data.get("middle_name", ""))
+    if middle_name and middle_name != "-":
+        _safe_write(ws, "AK7", middle_name[0].upper() + ".")
+
+    # КБК (020): U12-AN12 (20 ячеек)
+    kbk = "18210102010011000110"
+    _write_number_field(ws, kbk, 21, 12)  # U = 21
+
+    # ОКТМО (030): U14-AE14 — оставляем пустым
+
+    # Сумма к уплате (040): U16-AG16 — оставляем пустым
+
+    # Сумма к возврату (050): U18-AG18 (13 ячеек)
+    tax_return = data.get("tax_return", 0)
+    tax_return_str = str(round(tax_return))
+    _write_number_field(ws, tax_return_str, 21, 18)
+
+    # Дата внизу страницы: V63, X63 (день), AB63, AD63 (месяц), AH63, AJ63, AL63, AN63 (год)
+    today = datetime.now().strftime("%d%m%Y")
+    _safe_write(ws, "V63", today[0])
+    _safe_write(ws, "X63", today[1])
+    _safe_write(ws, "AB63", today[2])
+    _safe_write(ws, "AD63", today[3])
+    _safe_write(ws, "AH63", today[4])
+    _safe_write(ws, "AJ63", today[5])
+    _safe_write(ws, "AL63", today[6])
+    _safe_write(ws, "AN63", today[7])
+
+
+# ==================== РАЗДЕЛ 2 ====================
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-    _write_inn(ws, data.get("taxpayer_inn", ""))
+    # Пока оставляем как есть, уточним позже
     _safe_write(ws, "D1", "1")
     deduction = data.get("deduction_amount", 0)
     _safe_write(ws, "D40", f"{deduction:,.2f}")
@@ -191,9 +254,10 @@ def _fill_section2(wb, data):
     _safe_write(ws, "D160", str(round(tax_return)))
 
 
+# ==================== ПРИЛОЖЕНИЕ 5 ====================
+
 def _fill_appendix5(wb, data):
     ws = wb["Прил.5"]
-    _write_inn(ws, data.get("taxpayer_inn", ""))
     deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
 
@@ -206,8 +270,9 @@ def _fill_appendix5(wb, data):
     _safe_write(ws, "D190", f"{deduction:,.2f}")
 
 
+# ==================== ПРИЛОЖЕНИЕ К РАЗДЕЛУ 1 ====================
+
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
-    _write_inn(ws, data.get("taxpayer_inn", ""))
     tax_return = data.get("tax_return", 0)
     _safe_write(ws, "D10", str(round(tax_return)))

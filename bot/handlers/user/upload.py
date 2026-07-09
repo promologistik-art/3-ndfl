@@ -240,9 +240,23 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
-    if user.inn and user.last_name:
+    # Перезапрашиваем пользователя из БД, чтобы получить свежие данные
+    session = next(get_session())
+    try:
+        db_user = session.get(User, user.id)
+    finally:
+        session.close()
+
+    if db_user and db_user.inn and db_user.last_name:
         await callback.message.answer(
-            "📝 У вас есть сохранённые данные. Использовать их?",
+            "📝 У вас есть сохранённые данные:\n\n"
+            f"ИНН: {db_user.inn}\n"
+            f"ФИО: {db_user.last_name} {db_user.first_name} {db_user.middle_name or ''}\n"
+            f"Дата рождения: {db_user.birth_date}\n"
+            f"Паспорт: {db_user.passport}\n"
+            f"Код ИФНС: {db_user.tax_office}\n"
+            f"Телефон: {db_user.phone}\n\n"
+            "Использовать их?",
             reply_markup=remember_me_kb()
         )
         await state.set_state(UploadStates.waiting_for_remember)
@@ -270,16 +284,24 @@ async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = 
         await callback.answer("Ошибка")
         return
 
-    await state.update_data(
-        taxpayer_inn=user.inn,
-        last_name=user.last_name,
-        first_name=user.first_name,
-        middle_name=user.middle_name,
-        birth_date=user.birth_date,
-        passport=user.passport,
-        tax_office=user.tax_office,
-        taxpayer_phone=user.phone,
-    )
+    # Перезапрашиваем из БД
+    session = next(get_session())
+    try:
+        db_user = session.get(User, user.id)
+    finally:
+        session.close()
+
+    if db_user:
+        await state.update_data(
+            taxpayer_inn=db_user.inn,
+            last_name=db_user.last_name,
+            first_name=db_user.first_name,
+            middle_name=db_user.middle_name,
+            birth_date=db_user.birth_date,
+            passport=db_user.passport,
+            tax_office=db_user.tax_office,
+            taxpayer_phone=db_user.phone,
+        )
 
     await callback.message.answer("✅ Данные загружены из профиля. Выполняю расчёт...")
     await _do_calculation(callback.message, state, user)
