@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from bot.config import DATABASE_URL
 
@@ -19,6 +19,4 @@ def get_session():
 
 
 def init_db():
-    # Дропаем все таблицы и создаём заново
-    Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
