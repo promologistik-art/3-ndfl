@@ -38,6 +38,7 @@ def _safe_write(ws, cell_ref, value):
 
 
 def _write_fio_field(ws, text, start_col, row):
+    """Запись ФИО побуквенно через одну ячейку (для титульного листа)."""
     text = str(text) if text else ""
     col = start_col
     for char in text:
@@ -49,13 +50,13 @@ def _write_fio_field(ws, text, start_col, row):
 
 
 def _write_number_field(ws, text, start_col, row):
-    """Записывает число по цифрам в объединённые пары ячеек."""
+    """Запись числа по цифрам подряд в отдельные ячейки."""
     text = str(text) if text else ""
     col = start_col
     for char in text:
         col_letter = get_column_letter(col)
         _safe_write(ws, f"{col_letter}{row}", char)
-        col += 2
+        col += 1
 
 
 # ==================== ТИТУЛЬНЫЙ ЛИСТ ====================
@@ -63,19 +64,15 @@ def _write_number_field(ws, text, start_col, row):
 def _fill_title(wb, data):
     ws = wb["Титульный лист"]
 
-    # ИНН
     _write_inn(ws, data.get("taxpayer_inn", ""))
 
-    # Номер корректировки: K11, M11, O11
     _safe_write(ws, "K11", "0")
     _safe_write(ws, "M11", "0")
     _safe_write(ws, "O11", "0")
 
-    # Налоговый период: AC11, AE11
     _safe_write(ws, "AC11", "3")
     _safe_write(ws, "AE11", "4")
 
-    # Отчётный год: AU11, AW11, AY11, BA11
     year = str(data.get("year", ""))
     if len(year) >= 4:
         _safe_write(ws, "AU11", year[0])
@@ -83,7 +80,6 @@ def _fill_title(wb, data):
         _safe_write(ws, "AY11", year[2])
         _safe_write(ws, "BA11", year[3])
 
-    # Код налогового органа: BU11, BW11, BY11, CA11
     tax_office = str(data.get("tax_office", ""))
     if len(tax_office) >= 4:
         _safe_write(ws, "BU11", tax_office[0])
@@ -91,26 +87,18 @@ def _fill_title(wb, data):
         _safe_write(ws, "BY11", tax_office[2])
         _safe_write(ws, "CA11", tax_office[3])
 
-    # Код страны: K16, M16, O16
     _safe_write(ws, "K16", "6")
     _safe_write(ws, "M16", "4")
     _safe_write(ws, "O16", "3")
 
-    # Код категории: AU16, AW16, AY16
     _safe_write(ws, "AU16", "7")
     _safe_write(ws, "AW16", "6")
     _safe_write(ws, "AY16", "0")
 
-    # Фамилия: строка 18, начиная с K
     _write_fio_field(ws, data.get("last_name", ""), 11, 18)
-
-    # Имя: строка 20, начиная с K
     _write_fio_field(ws, data.get("first_name", ""), 11, 20)
-
-    # Отчество: строка 22, начиная с K
     _write_fio_field(ws, data.get("middle_name", ""), 11, 22)
 
-    # Дата рождения: K31, M31, Q31, S31, W31, Y31, AA31, AC31
     birth_date = str(data.get("birth_date", ""))
     if len(birth_date) == 10:
         _safe_write(ws, "K31", birth_date[0])
@@ -122,48 +110,35 @@ def _fill_title(wb, data):
         _safe_write(ws, "AA31", birth_date[8])
         _safe_write(ws, "AC31", birth_date[9])
 
-    # Код вида документа: Q33, S33 = "21"
     _safe_write(ws, "Q33", "2")
     _safe_write(ws, "S33", "1")
 
-    # Серия и номер паспорта: Q35, S35, U35, W35, Y35 ... до BO35
     passport = str(data.get("passport", ""))
     if len(passport) == 10:
-        col = 17  # Q = 17
+        col = 17
         for digit in passport:
             col_letter = get_column_letter(col)
             _safe_write(ws, f"{col_letter}35", digit)
             col += 2
 
-    # Код статуса налогоплательщика: Y37
     _safe_write(ws, "Y37", "1")
 
-    # Телефон: U39, W39, Y39 ... BG39
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
 
-    # Количество листов: S44, U44, W44 = "0", "0", "5"
     _safe_write(ws, "S44", "0")
     _safe_write(ws, "U44", "0")
     _safe_write(ws, "W44", "5")
 
-    # Количество листов подтверждающих документов: BQ44, BS44, BU44 = "0", "0", "0"
     _safe_write(ws, "BQ44", "0")
     _safe_write(ws, "BS44", "0")
     _safe_write(ws, "BU44", "0")
 
-    # Достоверность подтверждаю: D48 = "1"
     _safe_write(ws, "D48", "1")
 
-    # Фамилия (подпись): B50, D50, F50 ... AN50
     _write_fio_field(ws, data.get("last_name", ""), 2, 50)
-
-    # Имя (подпись): строка 52
     _write_fio_field(ws, data.get("first_name", ""), 2, 52)
-
-    # Отчество (подпись): строка 54
     _write_fio_field(ws, data.get("middle_name", ""), 2, 54)
 
-    # Дата заполнения: день V56, X56, месяц AB56, AD56, год AH56, AJ56, AL56, AN56
     today = datetime.now().strftime("%d%m%Y")
     _safe_write(ws, "V56", today[0])
     _safe_write(ws, "X56", today[1])
@@ -190,63 +165,45 @@ def _write_inn(ws, inn):
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
 
-    # ИНН — не заполняем, формула сама подтягивает
+    # Номер страницы — объединённая ячейка X4-Z4
+    _safe_write(ws, "X4", "002")
 
-    # Номер страницы: X4, Y4, Z4 = "0", "0", "2"
-    _safe_write(ws, "X4", "0")
-    _safe_write(ws, "Y4", "0")
-    _safe_write(ws, "Z4", "2")
-
-    # Фамилия: E7-AF7
+    # Фамилия — объединённая ячейка E7-AF7
     last_name = str(data.get("last_name", ""))
-    if last_name:
-        for i, char in enumerate(last_name):
-            col = 5 + i * 2  # E=5
-            if col > 32:
-                break
-            col_letter = get_column_letter(col)
-            _safe_write(ws, f"{col_letter}7", char.upper())
+    _safe_write(ws, "E7", last_name.upper())
 
-    # И. (первая буква имени): AH7
+    # И. (без точки) — объединённая ячейка AH7
     first_name = str(data.get("first_name", ""))
     if first_name:
-        _safe_write(ws, "AH7", first_name[0].upper() + ".")
+        _safe_write(ws, "AH7", first_name[0].upper())
 
-    # О. (первая буква отчества): AK7
+    # О. (без точки) — объединённая ячейка AK7
     middle_name = str(data.get("middle_name", ""))
     if middle_name and middle_name != "-":
-        _safe_write(ws, "AK7", middle_name[0].upper() + ".")
+        _safe_write(ws, "AK7", middle_name[0].upper())
 
-    # КБК (020): U12-AN12 (20 ячеек)
+    # КБК (020): U12-AN12, 20 цифр подряд
     kbk = "18210102010011000110"
-    _write_number_field(ws, kbk, 21, 12)  # U = 21
+    _write_number_field(ws, kbk, 21, 12)
 
-    # ОКТМО (030): U14-AE14 — оставляем пустым
+    # ОКТМО (030): U14-AE14 — пусто
 
-    # Сумма к уплате (040): U16-AG16 — оставляем пустым
+    # Сумма к уплате (040): U16-AG16 — пусто
 
-    # Сумма к возврату (050): U18-AG18 (13 ячеек)
+    # Сумма к возврату (050): U18-AG18, 13 цифр подряд
     tax_return = data.get("tax_return", 0)
     tax_return_str = str(round(tax_return))
     _write_number_field(ws, tax_return_str, 21, 18)
 
-    # Дата внизу страницы: V63, X63 (день), AB63, AD63 (месяц), AH63, AJ63, AL63, AN63 (год)
-    today = datetime.now().strftime("%d%m%Y")
-    _safe_write(ws, "V63", today[0])
-    _safe_write(ws, "X63", today[1])
-    _safe_write(ws, "AB63", today[2])
-    _safe_write(ws, "AD63", today[3])
-    _safe_write(ws, "AH63", today[4])
-    _safe_write(ws, "AJ63", today[5])
-    _safe_write(ws, "AL63", today[6])
-    _safe_write(ws, "AN63", today[7])
+    # Дата — объединённая ячейка V63
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V63", today)
 
 
 # ==================== РАЗДЕЛ 2 ====================
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-    # Пока оставляем как есть, уточним позже
     _safe_write(ws, "D1", "1")
     deduction = data.get("deduction_amount", 0)
     _safe_write(ws, "D40", f"{deduction:,.2f}")
