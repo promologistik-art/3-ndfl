@@ -133,11 +133,21 @@ def _fill_title(wb, data):
             _safe_write(ws, f"{col_letter}35", digit)
             col += 2
 
-    # Код статуса: BI28
-    _safe_write(ws, "BI28", "1")
+    # Код статуса налогоплательщика: Y37
+    _safe_write(ws, "Y37", "1")
 
     # Телефон: U39, W39, Y39 ... BG39
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
+
+    # Количество листов: S44, U44, W44 = "0", "0", "5"
+    _safe_write(ws, "S44", "0")
+    _safe_write(ws, "U44", "0")
+    _safe_write(ws, "W44", "5")
+
+    # Количество листов подтверждающих документов: BQ44, BS44, BU44 = "0", "0", "0"
+    _safe_write(ws, "BQ44", "0")
+    _safe_write(ws, "BS44", "0")
+    _safe_write(ws, "BU44", "0")
 
     # Достоверность подтверждаю: D48 = "1"
     _safe_write(ws, "D48", "1")

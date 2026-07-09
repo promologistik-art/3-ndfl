@@ -116,7 +116,6 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
         education_total=sum(p["amount"] for p in education),
     )
     await message.answer(response, reply_markup=deduction_type_kb())
-    await state.clear()
 
 
 @router.message(UploadStates.waiting_for_file)
@@ -136,7 +135,6 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, us
         return
 
     data = await state.get_data()
-    # Сохраняем сумму сразу при выборе типа вычета
     if deduction_type == "medical":
         total_amount = data.get("medical_total", 0)
     else:
@@ -266,7 +264,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
-    # Проверяем, есть ли сохранённые данные
     if user.inn and user.last_name:
         await callback.message.answer(
             "📝 У вас есть сохранённые данные. Использовать их?",
@@ -276,9 +273,16 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer()
         return
 
-    # Нет сохранённых данных — запрашиваем ИНН
     await callback.message.answer(
-        "📝 Для заполнения декларации нужны ваши данные.\n\n"
+        "📝 Для заполнения декларации нужны ваши данные:\n\n"
+        "1. ИНН\n"
+        "2. Фамилия\n"
+        "3. Имя\n"
+        "4. Отчество\n"
+        "5. Дата рождения в формате ДД.ММ.ГГГГ\n"
+        "6. Серия и номер паспорта (10 цифр)\n"
+        "7. Код налогового органа (4 цифры)\n\n"
+        "▸ Шаг 1 из 7\n"
         "Введите ваш ИНН (12 цифр):"
     )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
@@ -291,7 +295,6 @@ async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = 
         await callback.answer("Ошибка")
         return
 
-    # Заполняем state из профиля
     await state.update_data(
         taxpayer_inn=user.inn,
         last_name=user.last_name,
@@ -310,7 +313,18 @@ async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = 
 
 @router.callback_query(F.data == "remember_no", UploadStates.waiting_for_remember)
 async def remember_no(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Введите ваш ИНН (12 цифр):")
+    await callback.message.answer(
+        "📝 Для заполнения декларации нужны ваши данные:\n\n"
+        "1. ИНН\n"
+        "2. Фамилия\n"
+        "3. Имя\n"
+        "4. Отчество\n"
+        "5. Дата рождения в формате ДД.ММ.ГГГГ\n"
+        "6. Серия и номер паспорта (10 цифр)\n"
+        "7. Код налогового органа (4 цифры)\n\n"
+        "▸ Шаг 1 из 7\n"
+        "Введите ваш ИНН (12 цифр):"
+    )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
     await callback.answer()
 
@@ -323,28 +337,28 @@ async def taxpayer_inn(message: Message, state: FSMContext):
         return
 
     await state.update_data(taxpayer_inn=inn)
-    await message.answer("Введите вашу фамилию:")
+    await message.answer("▸ Шаг 2 из 7\nВведите вашу фамилию:")
     await state.set_state(UploadStates.waiting_for_last_name)
 
 
 @router.message(UploadStates.waiting_for_last_name)
 async def last_name(message: Message, state: FSMContext):
     await state.update_data(last_name=message.text.strip().upper())
-    await message.answer("Введите ваше имя:")
+    await message.answer("▸ Шаг 3 из 7\nВведите ваше имя:")
     await state.set_state(UploadStates.waiting_for_first_name)
 
 
 @router.message(UploadStates.waiting_for_first_name)
 async def first_name(message: Message, state: FSMContext):
     await state.update_data(first_name=message.text.strip().upper())
-    await message.answer("Введите ваше отчество (если нет — поставьте прочерк):")
+    await message.answer("▸ Шаг 4 из 7\nВведите ваше отчество (если нет — поставьте прочерк):")
     await state.set_state(UploadStates.waiting_for_middle_name)
 
 
 @router.message(UploadStates.waiting_for_middle_name)
 async def middle_name(message: Message, state: FSMContext):
     await state.update_data(middle_name=message.text.strip().upper())
-    await message.answer("Введите дату рождения в формате ДД.ММ.ГГГГ:")
+    await message.answer("▸ Шаг 5 из 7\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_birth_date)
 
 
@@ -356,7 +370,7 @@ async def birth_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(birth_date=text)
-    await message.answer("Введите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
+    await message.answer("▸ Шаг 6 из 7\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
     await state.set_state(UploadStates.waiting_for_passport)
 
 
@@ -368,7 +382,7 @@ async def passport(message: Message, state: FSMContext):
         return
     await state.update_data(passport=text)
     await message.answer(
-        "Введите код налогового органа (4 цифры).\n\n"
+        "▸ Шаг 7 из 7\nВведите код налогового органа (4 цифры).\n\n"
         "ℹ️ Код можно найти в личном кабинете ФНС (lkn.nalog.ru) или на сайте nalog.ru "
         "в разделе «Контакты вашей инспекции»."
     )
@@ -391,13 +405,24 @@ async def taxpayer_phone(message: Message, state: FSMContext, user: User = None)
     phone = message.text.strip()
     await state.update_data(taxpayer_phone=phone)
 
-    # Кнопка «Запомнить меня» — сохраняем в профиль
-    await message.answer(
-        "💾 Сохранить введённые данные в профиль для следующих деклараций?",
-        reply_markup=remember_me_kb()
-    )
-    await state.set_state(UploadStates.waiting_for_remember)
-    # Но уже вызываем расчёт
+    # Сохраняем в профиль
+    data = await state.get_data()
+    session = next(get_session())
+    try:
+        u = session.get(User, user.id)
+        if u:
+            u.inn = data.get("taxpayer_inn", "")
+            u.last_name = data.get("last_name", "")
+            u.first_name = data.get("first_name", "")
+            u.middle_name = data.get("middle_name", "")
+            u.birth_date = data.get("birth_date", "")
+            u.passport = data.get("passport", "")
+            u.tax_office = data.get("tax_office", "")
+            u.phone = data.get("taxpayer_phone", "")
+            session.commit()
+    finally:
+        session.close()
+
     await _do_calculation(message, state, user)
 
 
@@ -478,7 +503,9 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
             session3.close()
 
         await message.answer(
-            "✅ Декларация готова!",
+            "✅ Декларация готова!\n\n"
+            "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
+            "это нормально, данные в ячейках сохранены. Налоговая принимает такие файлы.",
             reply_markup=download_kb(declaration_id)
         )
 
