@@ -62,6 +62,41 @@ def _write_number_field(ws, text, start_col, row):
         col += 1
 
 
+def _write_amount_with_kopeks(ws, amount, start_col, row):
+    """Записывает сумму с копейками: рубли подряд, потом 2 цифры копеек."""
+    amount_str = f"{amount:.2f}"
+    parts = amount_str.split(".")
+    rubles = parts[0]
+    kopeks = parts[1]
+    _write_number_field(ws, rubles, start_col, row)
+    # Копейки в последние 2 ячейки (AM, AN для строк 11-21)
+    kopek_col = start_col + len(rubles) + 2  # примерно AM
+    _safe_write(ws, f"{get_column_letter(kopek_col)}{row}", kopeks[0])
+    _safe_write(ws, f"{get_column_letter(kopek_col+1)}{row}", kopeks[1])
+
+
+def _write_page_number(ws, number_str):
+    """Записывает трёхзначный номер страницы в X4, Y4, Z4."""
+    number_str = str(number_str).zfill(3)
+    _safe_write(ws, "X4", number_str[0])
+    _safe_write(ws, "Y4", number_str[1])
+    _safe_write(ws, "Z4", number_str[2])
+
+
+def _write_fio_section_header(ws, data):
+    """Фамилия И.О. в шапке раздела."""
+    last_name = str(data.get("last_name", ""))
+    _safe_write(ws, "E7", last_name.upper())
+
+    first_name = str(data.get("first_name", ""))
+    if first_name:
+        _safe_write(ws, "AH7", first_name[0].upper())
+
+    middle_name = str(data.get("middle_name", ""))
+    if middle_name and middle_name != "-":
+        _safe_write(ws, "AK7", middle_name[0].upper())
+
+
 # ==================== ТИТУЛЬНЫЙ ЛИСТ ====================
 
 def _fill_title(wb, data):
@@ -168,18 +203,8 @@ def _write_inn(ws, inn):
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
 
-    _safe_write(ws, "X4", "002")
-
-    last_name = str(data.get("last_name", ""))
-    _safe_write(ws, "E7", last_name.upper())
-
-    first_name = str(data.get("first_name", ""))
-    if first_name:
-        _safe_write(ws, "AH7", first_name[0].upper())
-
-    middle_name = str(data.get("middle_name", ""))
-    if middle_name and middle_name != "-":
-        _safe_write(ws, "AK7", middle_name[0].upper())
+    _write_page_number(ws, "002")
+    _write_fio_section_header(ws, data)
 
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
@@ -197,41 +222,25 @@ def _fill_section1(wb, data):
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
 
-    # Фамилия
-    last_name = str(data.get("last_name", ""))
-    _safe_write(ws, "E7", last_name.upper())
+    _write_page_number(ws, "003")
+    _write_fio_section_header(ws, data)
 
-    # И.
-    first_name = str(data.get("first_name", ""))
-    if first_name:
-        _safe_write(ws, "AH7", first_name[0].upper())
-
-    # О.
-    middle_name = str(data.get("middle_name", ""))
-    if middle_name and middle_name != "-":
-        _safe_write(ws, "AK7", middle_name[0].upper())
-
-    # Сумма к возврату (010): M11-Y11
     tax_return = data.get("tax_return", 0)
     tax_return_str = str(round(tax_return))
-    _write_number_field(ws, tax_return_str, 13, 11)  # M = 13
+    _write_number_field(ws, tax_return_str, 13, 11)
 
-    # БИК (020): U15-AC15 (9 цифр)
     bik = str(data.get("bik", ""))
     if len(bik) == 9:
-        _write_number_field(ws, bik, 21, 15)  # U = 21
+        _write_number_field(ws, bik, 21, 15)
 
-    # Номер счёта (030): U17-AN17 (20 цифр)
     account = str(data.get("account", ""))
     if len(account) == 20:
         _write_number_field(ws, account, 21, 17)
 
-    # Номер карты (040): U19-AN19
     card = str(data.get("card", ""))
     if card:
         _write_number_field(ws, card, 21, 19)
 
-    # Дата: V50
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V50", today, font_size=8)
 
@@ -240,17 +249,58 @@ def _fill_return_request(wb, data):
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-    _safe_write(ws, "D1", "1")
+
+    _write_page_number(ws, "004")
+    _write_fio_section_header(ws, data)
+
+    # Код группы доходов (001): Y9, Z9 = "1"
+    _safe_write(ws, "Y9", "1")
+    _safe_write(ws, "Z9", "")
+
+    # Сумма доходов (010): Y11-AK11 + копейки AM11, AN11
+    income = data.get("income", 0)
+    _write_amount_with_kopeks(ws, income, 25, 11)
+
+    # Сумма вычетов (040): Y17-AK17 + копейки AM17, AN17
     deduction = data.get("deduction_amount", 0)
-    _safe_write(ws, "D40", f"{deduction:,.2f}")
+    _write_amount_with_kopeks(ws, deduction, 25, 17)
+
+    # Сумма расходов (050): строка 19 — пусто
+
+    # Налоговая база (060): строка 21 = доход - вычет
+    tax_base = max(0, income - deduction)
+    _write_amount_with_kopeks(ws, tax_base, 25, 21)
+
+    # Сумма налога исчисленная (070): строка 24, без копеек = база * 13%
+    tax_calculated = round(tax_base * 0.13)
+    _write_number_field(ws, str(tax_calculated), 25, 24)
+
+    # Сумма налога удержанная (080): строка 26, без копеек
+    tax_paid = data.get("tax_paid", 0)
+    _write_number_field(ws, str(round(tax_paid)), 25, 26)
+
+    # Сумма к доплате (150): строка 38
+    tax_to_pay = max(0, tax_calculated - round(tax_paid))
+    if tax_to_pay > 0:
+        _write_number_field(ws, str(tax_to_pay), 25, 38)
+
+    # Сумма к возврату (160): строка 40
     tax_return = data.get("tax_return", 0)
-    _safe_write(ws, "D160", str(round(tax_return)))
+    _write_number_field(ws, str(round(tax_return)), 25, 40)
+
+    # Дата
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V59", today, font_size=8)
 
 
 # ==================== ПРИЛОЖЕНИЕ 5 ====================
 
 def _fill_appendix5(wb, data):
     ws = wb["Прил.5"]
+
+    _write_page_number(ws, "005")
+    _write_fio_section_header(ws, data)
+
     deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
 
