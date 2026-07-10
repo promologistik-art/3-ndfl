@@ -6,7 +6,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.models import User, Declaration, Profile, get_session
 from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ADMIN_IDS
-from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb
+from bot.keyboards.user import deduction_type_kb, confirm_data_kb, download_kb
 from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
 from core.generator.excel_generator import generate_excel
@@ -17,9 +17,6 @@ router = Router()
 
 class UploadStates(StatesGroup):
     waiting_for_file = State()
-    waiting_for_photo = State()
-    waiting_for_manual_name = State()
-    waiting_for_manual_inn = State()
     waiting_for_profile_choice = State()
     waiting_for_taxpayer_inn = State()
     waiting_for_fio = State()
@@ -148,107 +145,18 @@ async def handle_deduction_choice(callback: CallbackQuery, state: FSMContext, us
 
     await state.update_data(deduction_type=deduction_type, total_amount=total_amount)
 
+    deduction_preview = min(total_amount, 150_000)
+    tax_return_preview = round(deduction_preview * 0.13, 2)
+
     await callback.message.answer(
-        f"Для расчёта {_deduction_name(deduction_type)} нужны данные об учреждении.\n\n"
-        f"Вы можете загрузить фото договора/справки или ввести данные вручную.",
-        reply_markup=confirm_manual_input_kb()
-    )
-    await state.set_state(UploadStates.waiting_for_photo)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "upload_photo", UploadStates.waiting_for_photo)
-async def request_photo(callback: CallbackQuery):
-    await callback.message.edit_text(
-        "📸 Отправьте фото договора или справки об оплате.\n\n"
-        "Я распознаю наименование учреждения и ИНН."
-    )
-    await callback.answer()
-
-
-@router.message(UploadStates.waiting_for_photo, F.photo)
-async def handle_photo(message: Message, state: FSMContext):
-    await message.answer("🔍 Распознаю документ...")
-
-    os.makedirs(DATA_TEMP_DIR, exist_ok=True)
-    photo = message.photo[-1]
-    file = await message.bot.get_file(photo.file_id)
-    temp_path = os.path.join(DATA_TEMP_DIR, f"{uuid.uuid4()}.jpg")
-    await message.bot.download_file(file.file_path, temp_path)
-
-    try:
-        from core.parser.ocr import ocr_document
-        result = await ocr_document(temp_path)
-    except Exception:
-        await message.answer("❌ Не удалось распознать документ. Введите данные вручную.")
-        os.remove(temp_path)
-        await state.set_state(UploadStates.waiting_for_manual_name)
-        await message.answer("Введите наименование учреждения:")
-        return
-
-    os.remove(temp_path)
-
-    if not result or not result.get("name") or not result.get("inn"):
-        await message.answer("⚠️ Не удалось извлечь все данные. Введите вручную.")
-        await state.set_state(UploadStates.waiting_for_manual_name)
-        await message.answer("Введите наименование учреждения:")
-        return
-
-    await state.update_data(
-        institution_name=result.get("name"),
-        institution_inn=result.get("inn"),
-    )
-
-    data = await state.get_data()
-    total_amount = data.get("total_amount", 0)
-    deduction_preview = min(total_amount, 150_000)
-    tax_return_preview = round(deduction_preview * 0.13, 2)
-
-    await message.answer(
-        f"📋 Проверьте распознанные данные:\n\n"
-        f"🏢 Учреждение: <b>{result.get('name')}</b>\n"
-        f"🔢 ИНН: <b>{result.get('inn')}</b>\n"
+        f"📋 Проверьте данные для расчёта:\n\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
         f"📉 Сумма вычета: <b>{deduction_preview:,.2f} ₽</b>\n"
         f"💵 НДФЛ к возврату: <b>{tax_return_preview:,.2f} ₽</b>\n\n"
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
-
-
-@router.callback_query(F.data == "manual_input", UploadStates.waiting_for_photo)
-async def start_manual_input(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Введите наименование учреждения:")
-    await state.set_state(UploadStates.waiting_for_manual_name)
     await callback.answer()
-
-
-@router.message(UploadStates.waiting_for_manual_name)
-async def manual_name(message: Message, state: FSMContext):
-    await state.update_data(institution_name=message.text)
-    await message.answer("Введите ИНН учреждения:")
-    await state.set_state(UploadStates.waiting_for_manual_inn)
-
-
-@router.message(UploadStates.waiting_for_manual_inn)
-async def manual_inn(message: Message, state: FSMContext):
-    await state.update_data(institution_inn=message.text)
-
-    data = await state.get_data()
-    total_amount = data.get("total_amount", 0)
-    deduction_preview = min(total_amount, 150_000)
-    tax_return_preview = round(deduction_preview * 0.13, 2)
-
-    await message.answer(
-        f"📋 Проверьте введённые данные:\n\n"
-        f"🏢 Учреждение: <b>{data.get('institution_name')}</b>\n"
-        f"🔢 ИНН: <b>{data.get('institution_inn')}</b>\n"
-        f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
-        f"📉 Сумма вычета: <b>{deduction_preview:,.2f} ₽</b>\n"
-        f"💵 НДФЛ к возврату: <b>{tax_return_preview:,.2f} ₽</b>\n\n"
-        f"Всё верно?",
-        reply_markup=confirm_data_kb()
-    )
 
 
 @router.callback_query(F.data == "confirm_yes")
@@ -298,21 +206,18 @@ async def _do_calculation_demo(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
     deduction_type = data.get("deduction_type", "medical")
     total_amount = data.get("total_amount", 0)
-    institution_name = data.get("institution_name", "")
-    institution_inn = data.get("institution_inn", "")
     first_payment_date = data.get("first_payment_date", "")
 
     calculated = calculate_social_deduction(
         deduction_type=deduction_type,
         amount=total_amount,
-        institution_name=institution_name,
-        institution_inn=institution_inn,
+        institution_name="",
+        institution_inn="",
         payment_date=first_payment_date,
     )
 
     await message.answer(
         f"📊 Результат расчёта:\n\n"
-        f"🏢 Учреждение: <b>{institution_name}</b>\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
         f"📉 Сумма вычета: <b>{calculated['deduction_amount']:,.2f} ₽</b>\n"
         f"💵 НДФЛ к возврату: <b>{calculated['tax_return']:,.2f} ₽</b>\n"
@@ -560,22 +465,19 @@ async def tax_paid(message: Message, state: FSMContext, user: User = None):
 async def _do_calculation(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
     deduction_type = data.get("deduction_type", "medical")
-    institution_name = data.get("institution_name", "")
-    institution_inn = data.get("institution_inn", "")
     total_amount = data.get("total_amount", 0)
     first_payment_date = data.get("first_payment_date", "")
 
     calculated = calculate_social_deduction(
         deduction_type=deduction_type,
         amount=total_amount,
-        institution_name=institution_name,
-        institution_inn=institution_inn,
+        institution_name="",
+        institution_inn="",
         payment_date=first_payment_date,
     )
 
     await message.answer(
         f"📊 Результат расчёта:\n\n"
-        f"🏢 Учреждение: <b>{institution_name}</b>\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
         f"📉 Сумма вычета: <b>{calculated['deduction_amount']:,.2f} ₽</b>\n"
         f"💵 НДФЛ к возврату: <b>{calculated['tax_return']:,.2f} ₽</b>\n"
@@ -629,9 +531,21 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         session3.close()
 
     await message.answer(
-        "✅ Декларация готова!\n\n"
+        "✅ <b>Декларация готова!</b>\n\n"
+        "<b>Что делать дальше:</b>\n\n"
+        "1. <b>Откройте файл</b> в Excel, проверьте заполненные данные\n"
+        "2. <b>Распечатайте</b> декларацию на листах А4\n"
+        "3. <b>Подпишите</b> каждый лист в ячейках «Подпись» (только синей ручкой!)\n"
+        "4. <b>Приложите копии документов:</b>\n"
+        "   — Справка об оплате медицинских услуг (из учреждения)\n"
+        "   — Договор с учреждением (если есть)\n"
+        "   — Лицензия учреждения (если есть)\n"
+        "   — Справка 2-НДФЛ (с работы)\n"
+        "5. <b>Подайте в налоговую</b> одним из способов:\n"
+        "   — Лично в отделении ФНС (запись через nalog.ru)\n"
+        "   — Почтой заказным письмом с описью вложения\n\n"
         "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
-        "это нормально, данные в ячейках сохранены. Налоговая принимает такие файлы.",
+        "это нормально, данные в ячейках сохранены.",
         reply_markup=download_kb(declaration_id)
     )
 
@@ -649,8 +563,7 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
 @router.callback_query(F.data == "confirm_no")
 async def confirm_no(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Давайте введём данные заново.")
-    await state.set_state(UploadStates.waiting_for_manual_name)
-    await callback.message.answer("Введите наименование учреждения:")
+    await _start_data_input(callback.message, state)
     await callback.answer()
 
 
