@@ -257,7 +257,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
-    # Проверка демо-доступа ДО сбора данных
     if user.access_type == ACCESS_DEMO and user.telegram_id not in ADMIN_IDS:
         await callback.message.answer(
             "⚠️ У вас демо-доступ. Скачивание декларации недоступно.\n"
@@ -268,7 +267,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer()
         return
 
-    # Ищем сохранённые профили
     session = next(get_session())
     try:
         result = session.execute(
@@ -526,7 +524,6 @@ async def tax_paid(message: Message, state: FSMContext, user: User = None):
         return
     await state.update_data(tax_paid=amount)
 
-    # Сохраняем профиль
     data = await state.get_data()
     session = next(get_session())
     try:
@@ -612,6 +609,8 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         "income": data.get("income", 0),
         "tax_paid": data.get("tax_paid", 0),
     }
+
+    await message.answer("⏳ Готовлю декларацию, пара минут...")
     excel_path = await generate_excel(declaration_id, pdf_data)
 
     session3 = next(get_session())

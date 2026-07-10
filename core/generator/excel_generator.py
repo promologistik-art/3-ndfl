@@ -63,20 +63,18 @@ def _write_number_field(ws, text, start_col, row):
 
 
 def _write_amount_with_kopeks(ws, amount, start_col, row):
-    """Записывает сумму с копейками: рубли подряд, потом 2 цифры копеек."""
+    """Записывает сумму: рубли подряд с start_col, копейки в AM и AN этой строки."""
     amount_str = f"{amount:.2f}"
     parts = amount_str.split(".")
     rubles = parts[0]
     kopeks = parts[1]
+
     _write_number_field(ws, rubles, start_col, row)
-    # Копейки в последние 2 ячейки (AM, AN для строк 11-21)
-    kopek_col = start_col + len(rubles) + 2  # примерно AM
-    _safe_write(ws, f"{get_column_letter(kopek_col)}{row}", kopeks[0])
-    _safe_write(ws, f"{get_column_letter(kopek_col+1)}{row}", kopeks[1])
+    _safe_write(ws, f"AM{row}", kopeks[0])
+    _safe_write(ws, f"AN{row}", kopeks[1])
 
 
 def _write_page_number(ws, number_str):
-    """Записывает трёхзначный номер страницы в X4, Y4, Z4."""
     number_str = str(number_str).zfill(3)
     _safe_write(ws, "X4", number_str[0])
     _safe_write(ws, "Y4", number_str[1])
@@ -84,7 +82,6 @@ def _write_page_number(ws, number_str):
 
 
 def _write_fio_section_header(ws, data):
-    """Фамилия И.О. в шапке раздела."""
     last_name = str(data.get("last_name", ""))
     _safe_write(ws, "E7", last_name.upper())
 
@@ -253,9 +250,9 @@ def _fill_section2(wb, data):
     _write_page_number(ws, "004")
     _write_fio_section_header(ws, data)
 
-    # Код группы доходов (001): Y9, Z9 = "1"
-    _safe_write(ws, "Y9", "1")
-    _safe_write(ws, "Z9", "")
+    # Код группы доходов (001): Y9, Z9 = "0", "1"
+    _safe_write(ws, "Y9", "0")
+    _safe_write(ws, "Z9", "1")
 
     # Сумма доходов (010): Y11-AK11 + копейки AM11, AN11
     income = data.get("income", 0)
@@ -265,13 +262,11 @@ def _fill_section2(wb, data):
     deduction = data.get("deduction_amount", 0)
     _write_amount_with_kopeks(ws, deduction, 25, 17)
 
-    # Сумма расходов (050): строка 19 — пусто
-
     # Налоговая база (060): строка 21 = доход - вычет
     tax_base = max(0, income - deduction)
     _write_amount_with_kopeks(ws, tax_base, 25, 21)
 
-    # Сумма налога исчисленная (070): строка 24, без копеек = база * 13%
+    # Сумма налога исчисленная (070): строка 24, без копеек
     tax_calculated = round(tax_base * 0.13)
     _write_number_field(ws, str(tax_calculated), 25, 24)
 
@@ -285,10 +280,10 @@ def _fill_section2(wb, data):
         _write_number_field(ws, str(tax_to_pay), 25, 38)
 
     # Сумма к возврату (160): строка 40
-    tax_return = data.get("tax_return", 0)
-    _write_number_field(ws, str(round(tax_return)), 25, 40)
+    tax_return = max(0, round(tax_paid) - tax_calculated)
+    if tax_return > 0:
+        _write_number_field(ws, str(tax_return), 25, 40)
 
-    # Дата
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V59", today, font_size=8)
 
