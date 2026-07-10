@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
+from openpyxl.styles import Font
 from openpyxl.utils import get_column_letter
 from bot.config import DATA_TEMP_DIR
 
@@ -16,15 +17,15 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
 
     _fill_title(wb, data)
     _fill_section1(wb, data)
+    _fill_return_request(wb, data)
     _fill_section2(wb, data)
     _fill_appendix5(wb, data)
-    _fill_return_request(wb, data)
 
     wb.save(excel_path)
     return excel_path
 
 
-def _safe_write(ws, cell_ref, value):
+def _safe_write(ws, cell_ref, value, font_size=None):
     value = str(value) if value is not None else ""
     cell = ws[cell_ref]
     if isinstance(cell, MergedCell):
@@ -32,13 +33,16 @@ def _safe_write(ws, cell_ref, value):
             if cell.coordinate in merged_range:
                 parent_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
                 parent_cell.value = value
+                if font_size:
+                    parent_cell.font = Font(size=font_size)
                 return
     else:
         cell.value = value
+        if font_size:
+            cell.font = Font(size=font_size)
 
 
 def _write_fio_field(ws, text, start_col, row):
-    """Запись ФИО побуквенно через одну ячейку (для титульного листа)."""
     text = str(text) if text else ""
     col = start_col
     for char in text:
@@ -50,7 +54,6 @@ def _write_fio_field(ws, text, start_col, row):
 
 
 def _write_number_field(ws, text, start_col, row):
-    """Запись числа по цифрам подряд в отдельные ячейки."""
     text = str(text) if text else ""
     col = start_col
     for char in text:
@@ -165,39 +168,72 @@ def _write_inn(ws, inn):
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
 
-    # Номер страницы — объединённая ячейка X4-Z4
     _safe_write(ws, "X4", "002")
 
-    # Фамилия — объединённая ячейка E7-AF7
     last_name = str(data.get("last_name", ""))
     _safe_write(ws, "E7", last_name.upper())
 
-    # И. (без точки) — объединённая ячейка AH7
     first_name = str(data.get("first_name", ""))
     if first_name:
         _safe_write(ws, "AH7", first_name[0].upper())
 
-    # О. (без точки) — объединённая ячейка AK7
     middle_name = str(data.get("middle_name", ""))
     if middle_name and middle_name != "-":
         _safe_write(ws, "AK7", middle_name[0].upper())
 
-    # КБК (020): U12-AN12, 20 цифр подряд
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
 
-    # ОКТМО (030): U14-AE14 — пусто
-
-    # Сумма к уплате (040): U16-AG16 — пусто
-
-    # Сумма к возврату (050): U18-AG18, 13 цифр подряд
     tax_return = data.get("tax_return", 0)
     tax_return_str = str(round(tax_return))
     _write_number_field(ws, tax_return_str, 21, 18)
 
-    # Дата — объединённая ячейка V63
     today = datetime.now().strftime("%d.%m.%Y")
-    _safe_write(ws, "V63", today)
+    _safe_write(ws, "V63", today, font_size=8)
+
+
+# ==================== ПРИЛОЖЕНИЕ К РАЗДЕЛУ 1 ====================
+
+def _fill_return_request(wb, data):
+    ws = wb["Прил-е к Разделу 1"]
+
+    # Фамилия
+    last_name = str(data.get("last_name", ""))
+    _safe_write(ws, "E7", last_name.upper())
+
+    # И.
+    first_name = str(data.get("first_name", ""))
+    if first_name:
+        _safe_write(ws, "AH7", first_name[0].upper())
+
+    # О.
+    middle_name = str(data.get("middle_name", ""))
+    if middle_name and middle_name != "-":
+        _safe_write(ws, "AK7", middle_name[0].upper())
+
+    # Сумма к возврату (010): M11-Y11
+    tax_return = data.get("tax_return", 0)
+    tax_return_str = str(round(tax_return))
+    _write_number_field(ws, tax_return_str, 13, 11)  # M = 13
+
+    # БИК (020): U15-AC15 (9 цифр)
+    bik = str(data.get("bik", ""))
+    if len(bik) == 9:
+        _write_number_field(ws, bik, 21, 15)  # U = 21
+
+    # Номер счёта (030): U17-AN17 (20 цифр)
+    account = str(data.get("account", ""))
+    if len(account) == 20:
+        _write_number_field(ws, account, 21, 17)
+
+    # Номер карты (040): U19-AN19
+    card = str(data.get("card", ""))
+    if card:
+        _write_number_field(ws, card, 21, 19)
+
+    # Дата: V50
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V50", today, font_size=8)
 
 
 # ==================== РАЗДЕЛ 2 ====================
@@ -225,11 +261,3 @@ def _fill_appendix5(wb, data):
 
     _safe_write(ws, "D180", f"{deduction:,.2f}")
     _safe_write(ws, "D190", f"{deduction:,.2f}")
-
-
-# ==================== ПРИЛОЖЕНИЕ К РАЗДЕЛУ 1 ====================
-
-def _fill_return_request(wb, data):
-    ws = wb["Прил-е к Разделу 1"]
-    tax_return = data.get("tax_return", 0)
-    _safe_write(ws, "D10", str(round(tax_return)))

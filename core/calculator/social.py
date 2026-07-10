@@ -5,28 +5,22 @@ def calculate_social_deduction(
     deduction_type: str,
     amount: float,
     institution_name: str,
-    institution_inn: str
+    institution_inn: str,
+    payment_date: str = "",
 ) -> dict:
-    """
-    Расчёт социального налогового вычета.
-    
-    Лимиты (ст. 219 НК РФ):
-    - Медицинские услуги: до 120 000 ₽ в год (общий лимит по соц. вычетам)
-    - Обучение: до 50 000 ₽ на себя, до 110 000 ₽ на детей (с 2024 г.)
-    
-    Возвращает словарь с результатами расчёта.
-    """
-    # Общий лимит по социальным вычетам с 2024 года — 150 000 ₽
     SOCIAL_LIMIT = 150_000
-    
-    # Применяем лимит
     deductible_amount = min(amount, SOCIAL_LIMIT)
-    
-    # НДФЛ к возврату (13%)
     tax_return = round(deductible_amount * 0.13, 2)
-    
-    current_year = datetime.now().year
-    
+
+    # Год из даты платежа, иначе предыдущий год
+    if payment_date and len(payment_date) >= 4:
+        try:
+            year = int(payment_date.split(".")[-1])
+        except (ValueError, IndexError):
+            year = datetime.now().year - 1
+    else:
+        year = datetime.now().year - 1
+
     return {
         "deduction_type": deduction_type,
         "amount": amount,
@@ -34,6 +28,6 @@ def calculate_social_deduction(
         "tax_return": tax_return,
         "institution_name": institution_name,
         "institution_inn": institution_inn,
-        "year": current_year - 1,  # декларация за предыдущий год
+        "year": year,
         "limit_applied": amount > SOCIAL_LIMIT
     }

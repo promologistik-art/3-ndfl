@@ -4,12 +4,13 @@ from aiogram import Router, F
 from aiogram.types import Message, CallbackQuery, FSInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from core.models import User, Declaration, get_session
+from core.models import User, Declaration, Profile, get_session
 from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ADMIN_IDS
 from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb, remember_me_kb
 from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
 from core.generator.excel_generator import generate_excel
+from sqlalchemy import select
 
 router = Router()
 
@@ -19,13 +20,16 @@ class UploadStates(StatesGroup):
     waiting_for_photo = State()
     waiting_for_manual_name = State()
     waiting_for_manual_inn = State()
-    waiting_for_remember = State()
+    waiting_for_profile_choice = State()
     waiting_for_taxpayer_inn = State()
     waiting_for_fio = State()
     waiting_for_birth_date = State()
     waiting_for_passport = State()
     waiting_for_tax_office = State()
     waiting_for_taxpayer_phone = State()
+    waiting_for_bik = State()
+    waiting_for_account = State()
+    waiting_for_card = State()
 
 
 @router.callback_query(F.data == "menu_upload")
@@ -107,10 +111,14 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
     response += "\nВыберите тип вычета для расчёта:"
 
+    # Сохраняем дату первого платежа для определения года
+    first_date = parsed_payments[0]["date"] if parsed_payments else ""
+
     await state.update_data(
         parsed_payments=parsed_payments,
         medical_total=sum(p["amount"] for p in medical),
         education_total=sum(p["amount"] for p in education),
+        first_payment_date=first_date,
     )
     await message.answer(response, reply_markup=deduction_type_kb())
 
@@ -240,88 +248,87 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         await callback.answer("Ошибка")
         return
 
-    # Перезапрашиваем пользователя из БД, чтобы получить свежие данные
+    # Ищем сохранённые профили
     session = next(get_session())
     try:
-        db_user = session.get(User, user.id)
+        result = session.execute(
+            select(Profile).where(Profile.user_id == callback.from_user.id)
+        )
+        profiles = result.scalars().all()
     finally:
         session.close()
 
-    if db_user and db_user.inn and db_user.last_name:
-        await callback.message.answer(
-            "📝 У вас есть сохранённые данные:\n\n"
-            f"ИНН: {db_user.inn}\n"
-            f"ФИО: {db_user.last_name} {db_user.first_name} {db_user.middle_name or ''}\n"
-            f"Дата рождения: {db_user.birth_date}\n"
-            f"Паспорт: {db_user.passport}\n"
-            f"Код ИФНС: {db_user.tax_office}\n"
-            f"Телефон: {db_user.phone}\n\n"
-            "Использовать их?",
-            reply_markup=remember_me_kb()
-        )
-        await state.set_state(UploadStates.waiting_for_remember)
+    if profiles:
+        # Показываем список профилей
+        text = "📝 Выберите профиль для заполнения:\n\n"
+        buttons = []
+        for i, p in enumerate(profiles[:5]):  # макс 5 профилей
+            text += f"{i+1}. {p.name} (ИНН: {p.inn[:4]}...)\n"
+            buttons.append([InlineKeyboardButton(
+                text=f"{p.name}", callback_data=f"profile_{p.id}"
+            )])
+        buttons.append([InlineKeyboardButton(text="✏️ Новый профиль", callback_data="profile_new")])
+
+        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+        await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await state.set_state(UploadStates.waiting_for_profile_choice)
         await callback.answer()
         return
 
-    await callback.message.answer(
+    # Нет профилей — запрашиваем данные
+    await _start_data_input(callback.message, state)
+
+
+async def _start_data_input(message: Message, state: FSMContext):
+    await message.answer(
         "📝 Для заполнения декларации нужны ваши данные:\n\n"
         "1. ИНН (12 цифр)\n"
         "2. ФИО (Фамилия Имя Отчество)\n"
         "3. Дата рождения (ДД.ММ.ГГГГ)\n"
         "4. Серия и номер паспорта (10 цифр слитно)\n"
         "5. Код налогового органа (4 цифры)\n"
-        "6. Номер телефона\n\n"
-        "▸ Шаг 1 из 6\n"
+        "6. Номер телефона\n"
+        "7. БИК банка (9 цифр)\n"
+        "8. Номер счёта (20 цифр)\n"
+        "9. Номер карты (можно пропустить)\n\n"
+        "▸ Шаг 1 из 9\n"
         "Введите ваш ИНН (12 цифр):"
     )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
-    await callback.answer()
 
 
-@router.callback_query(F.data == "remember_yes", UploadStates.waiting_for_remember)
-async def remember_yes(callback: CallbackQuery, state: FSMContext, user: User = None):
-    if not user:
-        await callback.answer("Ошибка")
+@router.callback_query(F.data.startswith("profile_"), UploadStates.waiting_for_profile_choice)
+async def profile_chosen(callback: CallbackQuery, state: FSMContext, user: User = None):
+    profile_id = callback.data.replace("profile_", "")
+
+    if profile_id == "new":
+        await _start_data_input(callback.message, state)
+        await callback.answer()
         return
 
-    # Перезапрашиваем из БД
     session = next(get_session())
     try:
-        db_user = session.get(User, user.id)
+        p = session.get(Profile, int(profile_id))
     finally:
         session.close()
 
-    if db_user:
+    if p:
         await state.update_data(
-            taxpayer_inn=db_user.inn,
-            last_name=db_user.last_name,
-            first_name=db_user.first_name,
-            middle_name=db_user.middle_name,
-            birth_date=db_user.birth_date,
-            passport=db_user.passport,
-            tax_office=db_user.tax_office,
-            taxpayer_phone=db_user.phone,
+            taxpayer_inn=p.inn,
+            last_name=p.last_name,
+            first_name=p.first_name,
+            middle_name=p.middle_name,
+            birth_date=p.birth_date,
+            passport=p.passport,
+            tax_office=p.tax_office,
+            taxpayer_phone=p.phone,
+            bik=p.bik,
+            account=p.account,
+            card=p.card,
         )
+        await callback.message.answer(f"✅ Загружен профиль: {p.name}. Выполняю расчёт...")
+        await _do_calculation(callback.message, state, user)
 
-    await callback.message.answer("✅ Данные загружены из профиля. Выполняю расчёт...")
-    await _do_calculation(callback.message, state, user)
-    await callback.answer()
-
-
-@router.callback_query(F.data == "remember_no", UploadStates.waiting_for_remember)
-async def remember_no(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer(
-        "📝 Для заполнения декларации нужны ваши данные:\n\n"
-        "1. ИНН (12 цифр)\n"
-        "2. ФИО (Фамилия Имя Отчество)\n"
-        "3. Дата рождения (ДД.ММ.ГГГГ)\n"
-        "4. Серия и номер паспорта (10 цифр слитно)\n"
-        "5. Код налогового органа (4 цифры)\n"
-        "6. Номер телефона\n\n"
-        "▸ Шаг 1 из 6\n"
-        "Введите ваш ИНН (12 цифр):"
-    )
-    await state.set_state(UploadStates.waiting_for_taxpayer_inn)
     await callback.answer()
 
 
@@ -333,7 +340,7 @@ async def taxpayer_inn(message: Message, state: FSMContext):
         return
 
     await state.update_data(taxpayer_inn=inn)
-    await message.answer("▸ Шаг 2 из 6\nВведите ваше ФИО полностью (Фамилия Имя Отчество):")
+    await message.answer("▸ Шаг 2 из 9\nВведите ваше ФИО полностью (Фамилия Имя Отчество):")
     await state.set_state(UploadStates.waiting_for_fio)
 
 
@@ -349,7 +356,7 @@ async def fio(message: Message, state: FSMContext):
     middle_name = parts[2].upper() if len(parts) > 2 else "-"
 
     await state.update_data(last_name=last_name, first_name=first_name, middle_name=middle_name)
-    await message.answer("▸ Шаг 3 из 6\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
+    await message.answer("▸ Шаг 3 из 9\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_birth_date)
 
 
@@ -361,7 +368,7 @@ async def birth_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(birth_date=text)
-    await message.answer("▸ Шаг 4 из 6\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
+    await message.answer("▸ Шаг 4 из 9\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
     await state.set_state(UploadStates.waiting_for_passport)
 
 
@@ -373,7 +380,7 @@ async def passport(message: Message, state: FSMContext):
         return
     await state.update_data(passport=text)
     await message.answer(
-        "▸ Шаг 5 из 6\nВведите код налогового органа (4 цифры).\n\n"
+        "▸ Шаг 5 из 9\nВведите код налогового органа (4 цифры).\n\n"
         "ℹ️ Код можно найти в личном кабинете ФНС (lkn.nalog.ru) или на сайте nalog.ru "
         "в разделе «Контакты вашей инспекции»."
     )
@@ -387,30 +394,69 @@ async def tax_office(message: Message, state: FSMContext):
         await message.answer("❌ Код налогового органа — 4 цифры. Попробуйте ещё раз:")
         return
     await state.update_data(tax_office=text)
-    await message.answer("▸ Шаг 6 из 6\n📱 Введите ваш номер телефона (в любом формате):")
+    await message.answer("▸ Шаг 6 из 9\n📱 Введите ваш номер телефона (в любом формате):")
     await state.set_state(UploadStates.waiting_for_taxpayer_phone)
 
 
 @router.message(UploadStates.waiting_for_taxpayer_phone)
-async def taxpayer_phone(message: Message, state: FSMContext, user: User = None):
+async def taxpayer_phone(message: Message, state: FSMContext):
     phone = message.text.strip()
     await state.update_data(taxpayer_phone=phone)
+    await message.answer("▸ Шаг 7 из 9\nВведите БИК банка (9 цифр):")
+    await state.set_state(UploadStates.waiting_for_bik)
 
-    # Сохраняем в профиль
+
+@router.message(UploadStates.waiting_for_bik)
+async def bik(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or len(text) != 9:
+        await message.answer("❌ БИК должен содержать 9 цифр. Попробуйте ещё раз:")
+        return
+    await state.update_data(bik=text)
+    await message.answer("▸ Шаг 8 из 9\nВведите номер счёта (20 цифр):")
+    await state.set_state(UploadStates.waiting_for_account)
+
+
+@router.message(UploadStates.waiting_for_account)
+async def account(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit() or len(text) != 20:
+        await message.answer("❌ Номер счёта должен содержать 20 цифр. Попробуйте ещё раз:")
+        return
+    await state.update_data(account=text)
+    await message.answer("▸ Шаг 9 из 9\nВведите номер карты (или нажмите «-» чтобы пропустить):")
+    await state.set_state(UploadStates.waiting_for_card)
+
+
+@router.message(UploadStates.waiting_for_card)
+async def card(message: Message, state: FSMContext, user: User = None):
+    text = message.text.strip()
+    if text == "-":
+        text = ""
+    await state.update_data(card=text)
+
+    # Сохраняем профиль
     data = await state.get_data()
     session = next(get_session())
     try:
-        u = session.get(User, user.id)
-        if u:
-            u.inn = data.get("taxpayer_inn", "")
-            u.last_name = data.get("last_name", "")
-            u.first_name = data.get("first_name", "")
-            u.middle_name = data.get("middle_name", "")
-            u.birth_date = data.get("birth_date", "")
-            u.passport = data.get("passport", "")
-            u.tax_office = data.get("tax_office", "")
-            u.phone = data.get("taxpayer_phone", "")
-            session.commit()
+        profile_name = f"{data.get('last_name', '')} {data.get('first_name', '')[0]}.{data.get('middle_name', '')[0]}."
+        profile = Profile(
+            user_id=message.from_user.id,
+            name=profile_name,
+            inn=data.get("taxpayer_inn", ""),
+            last_name=data.get("last_name", ""),
+            first_name=data.get("first_name", ""),
+            middle_name=data.get("middle_name", ""),
+            birth_date=data.get("birth_date", ""),
+            passport=data.get("passport", ""),
+            tax_office=data.get("tax_office", ""),
+            phone=data.get("taxpayer_phone", ""),
+            bik=data.get("bik", ""),
+            account=data.get("account", ""),
+            card=data.get("card", ""),
+        )
+        session.add(profile)
+        session.commit()
     finally:
         session.close()
 
@@ -423,12 +469,14 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
     institution_name = data.get("institution_name", "")
     institution_inn = data.get("institution_inn", "")
     total_amount = data.get("total_amount", 0)
+    first_payment_date = data.get("first_payment_date", "")
 
     calculated = calculate_social_deduction(
         deduction_type=deduction_type,
         amount=total_amount,
         institution_name=institution_name,
-        institution_inn=institution_inn
+        institution_inn=institution_inn,
+        payment_date=first_payment_date,
     )
 
     await message.answer(
@@ -481,6 +529,9 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
             "passport": data.get("passport", ""),
             "tax_office": data.get("tax_office", ""),
             "taxpayer_phone": data.get("taxpayer_phone", ""),
+            "bik": data.get("bik", ""),
+            "account": data.get("account", ""),
+            "card": data.get("card", ""),
         }
         excel_path = await generate_excel(declaration_id, pdf_data)
 
