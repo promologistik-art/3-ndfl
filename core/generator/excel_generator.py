@@ -20,6 +20,7 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
     _fill_return_request(wb, data)
     _fill_section2(wb, data)
     _fill_appendix5(wb, data)
+    _fill_appendix5_continued(wb, data)
 
     wb.save(excel_path)
     return excel_path
@@ -63,12 +64,10 @@ def _write_number_field(ws, text, start_col, row):
 
 
 def _write_amount_with_kopeks(ws, amount, start_col, row):
-    """Записывает сумму: рубли подряд с start_col, копейки в AM и AN этой строки."""
     amount_str = f"{amount:.2f}"
     parts = amount_str.split(".")
     rubles = parts[0]
     kopeks = parts[1]
-
     _write_number_field(ws, rubles, start_col, row)
     _safe_write(ws, f"AM{row}", kopeks[0])
     _safe_write(ws, f"AN{row}", kopeks[1])
@@ -84,11 +83,9 @@ def _write_page_number(ws, number_str):
 def _write_fio_section_header(ws, data):
     last_name = str(data.get("last_name", ""))
     _safe_write(ws, "E7", last_name.upper())
-
     first_name = str(data.get("first_name", ""))
     if first_name:
         _safe_write(ws, "AH7", first_name[0].upper())
-
     middle_name = str(data.get("middle_name", ""))
     if middle_name and middle_name != "-":
         _safe_write(ws, "AK7", middle_name[0].upper())
@@ -98,42 +95,33 @@ def _write_fio_section_header(ws, data):
 
 def _fill_title(wb, data):
     ws = wb["Титульный лист"]
-
     _write_inn(ws, data.get("taxpayer_inn", ""))
-
     _safe_write(ws, "K11", "0")
     _safe_write(ws, "M11", "0")
     _safe_write(ws, "O11", "0")
-
     _safe_write(ws, "AC11", "3")
     _safe_write(ws, "AE11", "4")
-
     year = str(data.get("year", ""))
     if len(year) >= 4:
         _safe_write(ws, "AU11", year[0])
         _safe_write(ws, "AW11", year[1])
         _safe_write(ws, "AY11", year[2])
         _safe_write(ws, "BA11", year[3])
-
     tax_office = str(data.get("tax_office", ""))
     if len(tax_office) >= 4:
         _safe_write(ws, "BU11", tax_office[0])
         _safe_write(ws, "BW11", tax_office[1])
         _safe_write(ws, "BY11", tax_office[2])
         _safe_write(ws, "CA11", tax_office[3])
-
     _safe_write(ws, "K16", "6")
     _safe_write(ws, "M16", "4")
     _safe_write(ws, "O16", "3")
-
     _safe_write(ws, "AU16", "7")
     _safe_write(ws, "AW16", "6")
     _safe_write(ws, "AY16", "0")
-
     _write_fio_field(ws, data.get("last_name", ""), 11, 18)
     _write_fio_field(ws, data.get("first_name", ""), 11, 20)
     _write_fio_field(ws, data.get("middle_name", ""), 11, 22)
-
     birth_date = str(data.get("birth_date", ""))
     if len(birth_date) == 10:
         _safe_write(ws, "K31", birth_date[0])
@@ -144,10 +132,8 @@ def _fill_title(wb, data):
         _safe_write(ws, "Y31", birth_date[7])
         _safe_write(ws, "AA31", birth_date[8])
         _safe_write(ws, "AC31", birth_date[9])
-
     _safe_write(ws, "Q33", "2")
     _safe_write(ws, "S33", "1")
-
     passport = str(data.get("passport", ""))
     if len(passport) == 10:
         col = 17
@@ -155,25 +141,18 @@ def _fill_title(wb, data):
             col_letter = get_column_letter(col)
             _safe_write(ws, f"{col_letter}35", digit)
             col += 2
-
     _safe_write(ws, "Y37", "1")
-
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
-
     _safe_write(ws, "S44", "0")
     _safe_write(ws, "U44", "0")
     _safe_write(ws, "W44", "5")
-
     _safe_write(ws, "BQ44", "0")
     _safe_write(ws, "BS44", "0")
     _safe_write(ws, "BU44", "0")
-
     _safe_write(ws, "D48", "1")
-
     _write_fio_field(ws, data.get("last_name", ""), 2, 50)
     _write_fio_field(ws, data.get("first_name", ""), 2, 52)
     _write_fio_field(ws, data.get("middle_name", ""), 2, 54)
-
     today = datetime.now().strftime("%d%m%Y")
     _safe_write(ws, "V56", today[0])
     _safe_write(ws, "X56", today[1])
@@ -199,17 +178,12 @@ def _write_inn(ws, inn):
 
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
-
     _write_page_number(ws, "002")
     _write_fio_section_header(ws, data)
-
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
-
     tax_return = data.get("tax_return", 0)
-    tax_return_str = str(round(tax_return))
-    _write_number_field(ws, tax_return_str, 21, 18)
-
+    _write_number_field(ws, str(round(tax_return)), 21, 18)
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V63", today, font_size=8)
 
@@ -218,26 +192,19 @@ def _fill_section1(wb, data):
 
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
-
     _write_page_number(ws, "003")
     _write_fio_section_header(ws, data)
-
     tax_return = data.get("tax_return", 0)
-    tax_return_str = str(round(tax_return))
-    _write_number_field(ws, tax_return_str, 13, 11)
-
+    _write_number_field(ws, str(round(tax_return)), 13, 11)
     bik = str(data.get("bik", ""))
     if len(bik) == 9:
         _write_number_field(ws, bik, 21, 15)
-
     account = str(data.get("account", ""))
     if len(account) == 20:
         _write_number_field(ws, account, 21, 17)
-
     card = str(data.get("card", ""))
     if card:
         _write_number_field(ws, card, 21, 19)
-
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V50", today, font_size=8)
 
@@ -246,44 +213,26 @@ def _fill_return_request(wb, data):
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-
     _write_page_number(ws, "004")
     _write_fio_section_header(ws, data)
-
-    # Код группы доходов (001): Y9, Z9 = "0", "1"
     _safe_write(ws, "Y9", "0")
     _safe_write(ws, "Z9", "1")
-
-    # Сумма доходов (010): Y11-AK11 + копейки AM11, AN11
     income = data.get("income", 0)
     _write_amount_with_kopeks(ws, income, 25, 11)
-
-    # Сумма вычетов (040): Y17-AK17 + копейки AM17, AN17
     deduction = data.get("deduction_amount", 0)
     _write_amount_with_kopeks(ws, deduction, 25, 17)
-
-    # Налоговая база (060): строка 21 = доход - вычет
     tax_base = max(0, income - deduction)
     _write_amount_with_kopeks(ws, tax_base, 25, 21)
-
-    # Сумма налога исчисленная (070): строка 24, без копеек
     tax_calculated = round(tax_base * 0.13)
     _write_number_field(ws, str(tax_calculated), 25, 24)
-
-    # Сумма налога удержанная (080): строка 26, без копеек
     tax_paid = data.get("tax_paid", 0)
     _write_number_field(ws, str(round(tax_paid)), 25, 26)
-
-    # Сумма к доплате (150): строка 38
     tax_to_pay = max(0, tax_calculated - round(tax_paid))
     if tax_to_pay > 0:
         _write_number_field(ws, str(tax_to_pay), 25, 38)
-
-    # Сумма к возврату (160): строка 40
     tax_return = max(0, round(tax_paid) - tax_calculated)
     if tax_return > 0:
         _write_number_field(ws, str(tax_return), 25, 40)
-
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V59", today, font_size=8)
 
@@ -292,17 +241,51 @@ def _fill_section2(wb, data):
 
 def _fill_appendix5(wb, data):
     ws = wb["Прил.5"]
-
     _write_page_number(ws, "005")
     _write_fio_section_header(ws, data)
 
     deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
 
-    if deduction_type == "medical":
-        _safe_write(ws, "D140", f"{deduction:,.2f}")
-    elif deduction_type == "education":
-        _safe_write(ws, "D130", f"{deduction:,.2f}")
+    if deduction_type == "education":
+        # 130 — обучение: Z42-AK42 + копейки AM42, AN42
+        _write_amount_with_kopeks(ws, deduction, 26, 42)
 
-    _safe_write(ws, "D180", f"{deduction:,.2f}")
-    _safe_write(ws, "D190", f"{deduction:,.2f}")
+    # 180 — итого социальные вычеты с ограничением
+    _write_amount_with_kopeks(ws, deduction, 26, 23)
+
+    # 190 — общая сумма соц. вычетов по декларации
+    _write_amount_with_kopeks(ws, deduction, 26, 29)
+
+    # 200 — общая сумма стандартных и социальных вычетов
+    _write_amount_with_kopeks(ws, deduction, 26, 31)
+
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V47", today, font_size=8)
+
+
+# ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ) ====================
+
+def _fill_appendix5_continued(wb, data):
+    ws = wb["Прил.5 (продолжение)"]
+    _write_page_number(ws, "006")
+    _write_fio_section_header(ws, data)
+
+    deduction_type = data.get("deduction_type", "")
+    deduction = data.get("deduction_amount", 0)
+
+    if deduction_type == "medical":
+        # 140 — медицина: Z9-AK9 + копейки AM9, AN9
+        _write_amount_with_kopeks(ws, deduction, 26, 9)
+
+    # 180 — итого
+    _write_amount_with_kopeks(ws, deduction, 26, 23)
+
+    # 190 — общая сумма
+    _write_amount_with_kopeks(ws, deduction, 26, 29)
+
+    # 200 — общая сумма стандартных и социальных
+    _write_amount_with_kopeks(ws, deduction, 26, 31)
+
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V54", today, font_size=8)
