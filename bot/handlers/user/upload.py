@@ -29,6 +29,7 @@ class UploadStates(StatesGroup):
     waiting_for_card = State()
     waiting_for_income = State()
     waiting_for_tax_paid = State()
+    waiting_for_confirm_calculation = State()
 
 
 @router.callback_query(F.data == "menu_upload")
@@ -435,6 +436,53 @@ async def tax_paid(message: Message, state: FSMContext, user: User = None):
         return
     await state.update_data(tax_paid=amount)
 
+    # Проверяем, будет ли доплата
+    data = await state.get_data()
+    income_val = data.get("income", 0)
+    deduction_val = data.get("total_amount", 0)
+    tax_base = max(0, income_val - deduction_val)
+    tax_calculated = round(tax_base * 0.13)
+    tax_paid_val = round(amount)
+    tax_to_pay = max(0, tax_calculated - tax_paid_val)
+    tax_return_val = max(0, tax_paid_val - tax_calculated)
+
+    if tax_to_pay > 0:
+        await message.answer(
+            f"⚠️ <b>Внимание!</b> По вашим данным получается <b>доплата {tax_to_pay:,} ₽</b>, а не возврат.\n\n"
+            f"Вы указали:\n"
+            f"• Доход: {income_val:,.0f} ₽\n"
+            f"• Удержанный налог: {tax_paid_val:,} ₽\n"
+            f"• Сумма вычета: {deduction_val:,.0f} ₽\n\n"
+            f"Исчисленный налог: {tax_calculated:,} ₽\n"
+            f"К доплате: {tax_to_pay:,} ₽\n\n"
+            f"Возможно, данные введены неверно. Проверьте справку 2-НДФЛ.\n"
+            f"Всё верно?",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="✅ Да, продолжить", callback_data="calc_confirm_yes")],
+                [InlineKeyboardButton(text="✏️ Исправить", callback_data="calc_confirm_no")],
+            ])
+        )
+        await state.set_state(UploadStates.waiting_for_confirm_calculation)
+        return
+
+    # Если возврат — сохраняем и считаем
+    await _save_profile_and_calculate(message, state, user)
+
+
+@router.callback_query(F.data == "calc_confirm_yes", UploadStates.waiting_for_confirm_calculation)
+async def calc_confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = None):
+    await _save_profile_and_calculate(callback.message, state, user)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "calc_confirm_no", UploadStates.waiting_for_confirm_calculation)
+async def calc_confirm_no(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Давайте исправим. Введите сумму дохода заново:")
+    await state.set_state(UploadStates.waiting_for_income)
+    await callback.answer()
+
+
+async def _save_profile_and_calculate(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
     session = next(get_session())
     try:
@@ -476,11 +524,23 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         payment_date=first_payment_date,
     )
 
+    income_val = data.get("income", 0)
+    tax_paid_val = data.get("tax_paid", 0)
+    tax_base = max(0, income_val - total_amount)
+    tax_calculated = round(tax_base * 0.13)
+    tax_to_pay = max(0, tax_calculated - round(tax_paid_val))
+    tax_return_val = max(0, round(tax_paid_val) - tax_calculated)
+
+    if tax_to_pay > 0:
+        result_text = f"💵 К доплате: <b>{tax_to_pay:,} ₽</b>"
+    else:
+        result_text = f"💵 НДФЛ к возврату: <b>{tax_return_val:,} ₽</b>"
+
     await message.answer(
         f"📊 Результат расчёта:\n\n"
         f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
         f"📉 Сумма вычета: <b>{calculated['deduction_amount']:,.2f} ₽</b>\n"
-        f"💵 НДФЛ к возврату: <b>{calculated['tax_return']:,.2f} ₽</b>\n"
+        f"{result_text}\n"
         f"📆 Год: <b>{calculated['year']}</b>"
     )
 
@@ -514,8 +574,10 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         "bik": data.get("bik", ""),
         "account": data.get("account", ""),
         "card": data.get("card", ""),
-        "income": data.get("income", 0),
-        "tax_paid": data.get("tax_paid", 0),
+        "income": income_val,
+        "tax_paid": tax_paid_val,
+        "tax_to_pay": tax_to_pay,
+        "tax_return": tax_return_val,
     }
 
     await message.answer("⏳ Готовлю декларацию, пара минут...")

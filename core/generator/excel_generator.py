@@ -180,10 +180,20 @@ def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
     _write_page_number(ws, "002")
     _write_fio_section_header(ws, data)
+
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
+
+    tax_to_pay = data.get("tax_to_pay", 0)
     tax_return = data.get("tax_return", 0)
-    _write_number_field(ws, str(round(tax_return)), 21, 18)
+
+    if tax_to_pay > 0:
+        # Сумма к уплате (040): U16-AG16
+        _write_number_field(ws, str(round(tax_to_pay)), 21, 16)
+    elif tax_return > 0:
+        # Сумма к возврату (050): U18-AG18
+        _write_number_field(ws, str(round(tax_return)), 21, 18)
+
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V63", today, font_size=8)
 
@@ -194,8 +204,12 @@ def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
     _write_page_number(ws, "003")
     _write_fio_section_header(ws, data)
+
+    tax_to_pay = data.get("tax_to_pay", 0)
     tax_return = data.get("tax_return", 0)
-    _write_number_field(ws, str(round(tax_return)), 13, 11)
+    amount = tax_return if tax_return > 0 else 0
+    _write_number_field(ws, str(round(amount)), 13, 11)
+
     bik = str(data.get("bik", ""))
     if len(bik) == 9:
         _write_number_field(ws, bik, 21, 15)
@@ -227,12 +241,15 @@ def _fill_section2(wb, data):
     _write_number_field(ws, str(tax_calculated), 25, 24)
     tax_paid = data.get("tax_paid", 0)
     _write_number_field(ws, str(round(tax_paid)), 25, 26)
-    tax_to_pay = max(0, tax_calculated - round(tax_paid))
+
+    tax_to_pay = data.get("tax_to_pay", 0)
+    tax_return = data.get("tax_return", 0)
+
     if tax_to_pay > 0:
-        _write_number_field(ws, str(tax_to_pay), 25, 38)
-    tax_return = max(0, round(tax_paid) - tax_calculated)
+        _write_number_field(ws, str(round(tax_to_pay)), 25, 38)
     if tax_return > 0:
-        _write_number_field(ws, str(tax_return), 25, 40)
+        _write_number_field(ws, str(round(tax_return)), 25, 40)
+
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V59", today, font_size=8)
 
