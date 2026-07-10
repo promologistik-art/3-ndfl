@@ -30,6 +30,8 @@ class UploadStates(StatesGroup):
     waiting_for_bik = State()
     waiting_for_account = State()
     waiting_for_card = State()
+    waiting_for_income = State()
+    waiting_for_tax_paid = State()
 
 
 @router.callback_query(F.data == "menu_upload")
@@ -199,7 +201,6 @@ async def handle_photo(message: Message, state: FSMContext):
 
     data = await state.get_data()
     total_amount = data.get("total_amount", 0)
-    # Считаем предварительный вычет для показа
     deduction_preview = min(total_amount, 150_000)
     tax_return_preview = round(deduction_preview * 0.13, 2)
 
@@ -263,7 +264,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
             "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>\n\n"
             "Расчёт будет показан в чате."
         )
-        # Показываем расчёт без генерации файла
         await _do_calculation_demo(callback.message, state, user)
         await callback.answer()
         return
@@ -297,7 +297,6 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
 
 
 async def _do_calculation_demo(message: Message, state: FSMContext, user: User):
-    """Расчёт без генерации файла для демо-доступа."""
     data = await state.get_data()
     deduction_type = data.get("deduction_type", "medical")
     total_amount = data.get("total_amount", 0)
@@ -324,7 +323,6 @@ async def _do_calculation_demo(message: Message, state: FSMContext, user: User):
         f"📩 Администратор: <b>@silverzen</b>"
     )
 
-    # Увеличиваем счётчик
     user.declarations_used += 1
     session = next(get_session())
     try:
@@ -347,8 +345,10 @@ async def _start_data_input(message: Message, state: FSMContext):
         "6. Номер телефона\n"
         "7. БИК банка (9 цифр)\n"
         "8. Номер счёта (20 цифр)\n"
-        "9. Номер карты (можно пропустить)\n\n"
-        "▸ Шаг 1 из 9\n"
+        "9. Номер карты (можно пропустить)\n"
+        "10. Сумма дохода из 2-НДФЛ\n"
+        "11. Сумма удержанного налога из 2-НДФЛ\n\n"
+        "▸ Шаг 1 из 11\n"
         "Введите ваш ИНН (12 цифр):"
     )
     await state.set_state(UploadStates.waiting_for_taxpayer_inn)
@@ -397,7 +397,7 @@ async def taxpayer_inn(message: Message, state: FSMContext):
         return
 
     await state.update_data(taxpayer_inn=inn)
-    await message.answer("▸ Шаг 2 из 9\nВведите ваше ФИО полностью (Фамилия Имя Отчество):")
+    await message.answer("▸ Шаг 2 из 11\nВведите ваше ФИО полностью (Фамилия Имя Отчество):")
     await state.set_state(UploadStates.waiting_for_fio)
 
 
@@ -413,7 +413,7 @@ async def fio(message: Message, state: FSMContext):
     middle_name = parts[2].upper() if len(parts) > 2 else "-"
 
     await state.update_data(last_name=last_name, first_name=first_name, middle_name=middle_name)
-    await message.answer("▸ Шаг 3 из 9\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
+    await message.answer("▸ Шаг 3 из 11\nВведите дату рождения в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_birth_date)
 
 
@@ -425,7 +425,7 @@ async def birth_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(birth_date=text)
-    await message.answer("▸ Шаг 4 из 9\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
+    await message.answer("▸ Шаг 4 из 11\nВведите серию и номер паспорта (10 цифр слитно):\nНапример: 4510123456")
     await state.set_state(UploadStates.waiting_for_passport)
 
 
@@ -437,7 +437,7 @@ async def passport(message: Message, state: FSMContext):
         return
     await state.update_data(passport=text)
     await message.answer(
-        "▸ Шаг 5 из 9\nВведите код налогового органа (4 цифры).\n\n"
+        "▸ Шаг 5 из 11\nВведите код налогового органа (4 цифры).\n\n"
         "ℹ️ Код можно найти в личном кабинете ФНС (lkn.nalog.ru) или на сайте nalog.ru "
         "в разделе «Контакты вашей инспекции»."
     )
@@ -451,7 +451,7 @@ async def tax_office(message: Message, state: FSMContext):
         await message.answer("❌ Код налогового органа — 4 цифры. Попробуйте ещё раз:")
         return
     await state.update_data(tax_office=text)
-    await message.answer("▸ Шаг 6 из 9\n📱 Введите ваш номер телефона (в любом формате):")
+    await message.answer("▸ Шаг 6 из 11\n📱 Введите ваш номер телефона (в любом формате):")
     await state.set_state(UploadStates.waiting_for_taxpayer_phone)
 
 
@@ -459,7 +459,7 @@ async def tax_office(message: Message, state: FSMContext):
 async def taxpayer_phone(message: Message, state: FSMContext):
     phone = message.text.strip()
     await state.update_data(taxpayer_phone=phone)
-    await message.answer("▸ Шаг 7 из 9\nВведите БИК банка (9 цифр):")
+    await message.answer("▸ Шаг 7 из 11\nВведите БИК банка (9 цифр):")
     await state.set_state(UploadStates.waiting_for_bik)
 
 
@@ -470,7 +470,7 @@ async def bik(message: Message, state: FSMContext):
         await message.answer("❌ БИК должен содержать 9 цифр. Попробуйте ещё раз:")
         return
     await state.update_data(bik=text)
-    await message.answer("▸ Шаг 8 из 9\nВведите номер счёта (20 цифр):")
+    await message.answer("▸ Шаг 8 из 11\nВведите номер счёта (20 цифр):")
     await state.set_state(UploadStates.waiting_for_account)
 
 
@@ -481,7 +481,7 @@ async def account(message: Message, state: FSMContext):
         await message.answer("❌ Номер счёта должен содержать 20 цифр. Попробуйте ещё раз:")
         return
     await state.update_data(account=text)
-    await message.answer("▸ Шаг 9 из 9\nВведите номер карты (или нажмите «-» чтобы пропустить):")
+    await message.answer("▸ Шаг 9 из 11\nВведите номер карты (или нажмите «-» чтобы пропустить):")
     await state.set_state(UploadStates.waiting_for_card)
 
 
@@ -491,6 +491,40 @@ async def card(message: Message, state: FSMContext, user: User = None):
     if text == "-":
         text = ""
     await state.update_data(card=text)
+
+    await message.answer(
+        "▸ Шаг 10 из 11\n"
+        "Введите общую сумму дохода за год из справки 2-НДФЛ (в рублях и копейках):\n\n"
+        "ℹ️ Эти данные нужны для расчёта налоговой базы. "
+        "Хранятся в зашифрованном виде и никому не передаются."
+    )
+    await state.set_state(UploadStates.waiting_for_income)
+
+
+@router.message(UploadStates.waiting_for_income)
+async def income(message: Message, state: FSMContext):
+    try:
+        amount = float(message.text.strip().replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("❌ Введите число.")
+        return
+    await state.update_data(income=amount)
+    await message.answer(
+        "▸ Шаг 11 из 11\n"
+        "Введите сумму налога, удержанную работодателем, из справки 2-НДФЛ (в рублях):\n\n"
+        "ℹ️ Хранится в зашифрованном виде и никому не передаётся."
+    )
+    await state.set_state(UploadStates.waiting_for_tax_paid)
+
+
+@router.message(UploadStates.waiting_for_tax_paid)
+async def tax_paid(message: Message, state: FSMContext, user: User = None):
+    try:
+        amount = float(message.text.strip().replace(",", ".").replace(" ", ""))
+    except ValueError:
+        await message.answer("❌ Введите число.")
+        return
+    await state.update_data(tax_paid=amount)
 
     # Сохраняем профиль
     data = await state.get_data()
@@ -575,6 +609,8 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         "bik": data.get("bik", ""),
         "account": data.get("account", ""),
         "card": data.get("card", ""),
+        "income": data.get("income", 0),
+        "tax_paid": data.get("tax_paid", 0),
     }
     excel_path = await generate_excel(declaration_id, pdf_data)
 
