@@ -1,12 +1,12 @@
 import os
 import uuid
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, FSInputFile
+from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.models import User, Declaration, Profile, get_session
 from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ADMIN_IDS
-from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb, remember_me_kb
+from bot.keyboards.user import deduction_type_kb, confirm_manual_input_kb, confirm_data_kb, download_kb
 from core.parser.pdf_parser import parse_pdf
 from core.calculator.social import calculate_social_deduction
 from core.generator.excel_generator import generate_excel
@@ -111,7 +111,6 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
     response += "\nВыберите тип вычета для расчёта:"
 
-    # Сохраняем дату первого платежа для определения года
     first_date = parsed_payments[0]["date"] if parsed_payments else ""
 
     await state.update_data(
@@ -200,12 +199,17 @@ async def handle_photo(message: Message, state: FSMContext):
 
     data = await state.get_data()
     total_amount = data.get("total_amount", 0)
+    # Считаем предварительный вычет для показа
+    deduction_preview = min(total_amount, 150_000)
+    tax_return_preview = round(deduction_preview * 0.13, 2)
 
     await message.answer(
         f"📋 Проверьте распознанные данные:\n\n"
         f"🏢 Учреждение: <b>{result.get('name')}</b>\n"
         f"🔢 ИНН: <b>{result.get('inn')}</b>\n"
-        f"💰 Сумма: <b>{total_amount:,.2f} ₽</b>\n\n"
+        f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
+        f"📉 Сумма вычета: <b>{deduction_preview:,.2f} ₽</b>\n"
+        f"💵 НДФЛ к возврату: <b>{tax_return_preview:,.2f} ₽</b>\n\n"
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
@@ -231,12 +235,16 @@ async def manual_inn(message: Message, state: FSMContext):
 
     data = await state.get_data()
     total_amount = data.get("total_amount", 0)
+    deduction_preview = min(total_amount, 150_000)
+    tax_return_preview = round(deduction_preview * 0.13, 2)
 
     await message.answer(
         f"📋 Проверьте введённые данные:\n\n"
         f"🏢 Учреждение: <b>{data.get('institution_name')}</b>\n"
         f"🔢 ИНН: <b>{data.get('institution_inn')}</b>\n"
-        f"💰 Сумма: <b>{total_amount:,.2f} ₽</b>\n\n"
+        f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
+        f"📉 Сумма вычета: <b>{deduction_preview:,.2f} ₽</b>\n"
+        f"💵 НДФЛ к возврату: <b>{tax_return_preview:,.2f} ₽</b>\n\n"
         f"Всё верно?",
         reply_markup=confirm_data_kb()
     )
@@ -246,6 +254,18 @@ async def manual_inn(message: Message, state: FSMContext):
 async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = None):
     if not user:
         await callback.answer("Ошибка")
+        return
+
+    # Проверка демо-доступа ДО сбора данных
+    if user.access_type == ACCESS_DEMO and user.telegram_id not in ADMIN_IDS:
+        await callback.message.answer(
+            "⚠️ У вас демо-доступ. Скачивание декларации недоступно.\n"
+            "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>\n\n"
+            "Расчёт будет показан в чате."
+        )
+        # Показываем расчёт без генерации файла
+        await _do_calculation_demo(callback.message, state, user)
+        await callback.answer()
         return
 
     # Ищем сохранённые профили
@@ -259,24 +279,61 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, user: User = N
         session.close()
 
     if profiles:
-        # Показываем список профилей
         text = "📝 Выберите профиль для заполнения:\n\n"
         buttons = []
-        for i, p in enumerate(profiles[:5]):  # макс 5 профилей
+        for i, p in enumerate(profiles[:5]):
             text += f"{i+1}. {p.name} (ИНН: {p.inn[:4]}...)\n"
             buttons.append([InlineKeyboardButton(
                 text=f"{p.name}", callback_data=f"profile_{p.id}"
             )])
         buttons.append([InlineKeyboardButton(text="✏️ Новый профиль", callback_data="profile_new")])
 
-        from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
         await callback.message.answer(text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
         await state.set_state(UploadStates.waiting_for_profile_choice)
         await callback.answer()
         return
 
-    # Нет профилей — запрашиваем данные
     await _start_data_input(callback.message, state)
+
+
+async def _do_calculation_demo(message: Message, state: FSMContext, user: User):
+    """Расчёт без генерации файла для демо-доступа."""
+    data = await state.get_data()
+    deduction_type = data.get("deduction_type", "medical")
+    total_amount = data.get("total_amount", 0)
+    institution_name = data.get("institution_name", "")
+    institution_inn = data.get("institution_inn", "")
+    first_payment_date = data.get("first_payment_date", "")
+
+    calculated = calculate_social_deduction(
+        deduction_type=deduction_type,
+        amount=total_amount,
+        institution_name=institution_name,
+        institution_inn=institution_inn,
+        payment_date=first_payment_date,
+    )
+
+    await message.answer(
+        f"📊 Результат расчёта:\n\n"
+        f"🏢 Учреждение: <b>{institution_name}</b>\n"
+        f"💰 Сумма расходов: <b>{total_amount:,.2f} ₽</b>\n"
+        f"📉 Сумма вычета: <b>{calculated['deduction_amount']:,.2f} ₽</b>\n"
+        f"💵 НДФЛ к возврату: <b>{calculated['tax_return']:,.2f} ₽</b>\n"
+        f"📆 Год: <b>{calculated['year']}</b>\n\n"
+        f"⚠️ Для скачивания декларации необходим платный доступ.\n"
+        f"📩 Администратор: <b>@silverzen</b>"
+    )
+
+    # Увеличиваем счётчик
+    user.declarations_used += 1
+    session = next(get_session())
+    try:
+        session.merge(user)
+        session.commit()
+    finally:
+        session.close()
+
+    await state.clear()
 
 
 async def _start_data_input(message: Message, state: FSMContext):
@@ -505,59 +562,45 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
     finally:
         session.close()
 
-    if user.access_type == ACCESS_DEMO and user.telegram_id not in ADMIN_IDS:
-        user.declarations_used += 1
-        session2 = next(get_session())
-        try:
-            session2.merge(user)
-            session2.commit()
-        finally:
-            session2.close()
+    pdf_data = {
+        **calculated,
+        "taxpayer_inn": data.get("taxpayer_inn", ""),
+        "last_name": data.get("last_name", ""),
+        "first_name": data.get("first_name", ""),
+        "middle_name": data.get("middle_name", ""),
+        "birth_date": data.get("birth_date", ""),
+        "passport": data.get("passport", ""),
+        "tax_office": data.get("tax_office", ""),
+        "taxpayer_phone": data.get("taxpayer_phone", ""),
+        "bik": data.get("bik", ""),
+        "account": data.get("account", ""),
+        "card": data.get("card", ""),
+    }
+    excel_path = await generate_excel(declaration_id, pdf_data)
 
-        await message.answer(
-            "⚠️ У вас демо-доступ. Скачивание декларации недоступно.\n"
-            "Для получения полного доступа свяжитесь с администратором: <b>@silverzen</b>"
-        )
-    else:
-        pdf_data = {
-            **calculated,
-            "taxpayer_inn": data.get("taxpayer_inn", ""),
-            "last_name": data.get("last_name", ""),
-            "first_name": data.get("first_name", ""),
-            "middle_name": data.get("middle_name", ""),
-            "birth_date": data.get("birth_date", ""),
-            "passport": data.get("passport", ""),
-            "tax_office": data.get("tax_office", ""),
-            "taxpayer_phone": data.get("taxpayer_phone", ""),
-            "bik": data.get("bik", ""),
-            "account": data.get("account", ""),
-            "card": data.get("card", ""),
-        }
-        excel_path = await generate_excel(declaration_id, pdf_data)
+    session3 = next(get_session())
+    try:
+        decl = session3.get(Declaration, declaration_id)
+        decl.pdf_path = excel_path
+        decl.status = "generated"
+        session3.commit()
+    finally:
+        session3.close()
 
-        session3 = next(get_session())
-        try:
-            decl = session3.get(Declaration, declaration_id)
-            decl.pdf_path = excel_path
-            decl.status = "generated"
-            session3.commit()
-        finally:
-            session3.close()
+    await message.answer(
+        "✅ Декларация готова!\n\n"
+        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
+        "это нормально, данные в ячейках сохранены. Налоговая принимает такие файлы.",
+        reply_markup=download_kb(declaration_id)
+    )
 
-        await message.answer(
-            "✅ Декларация готова!\n\n"
-            "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
-            "это нормально, данные в ячейках сохранены. Налоговая принимает такие файлы.",
-            reply_markup=download_kb(declaration_id)
-        )
-
-        user.declarations_used += 1
-        session4 = next(get_session())
-        try:
-            session4.merge(user)
-            session4.commit()
-        finally:
-            session4.close()
+    user.declarations_used += 1
+    session4 = next(get_session())
+    try:
+        session4.merge(user)
+        session4.commit()
+    finally:
+        session4.close()
 
     await state.clear()
 
