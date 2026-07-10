@@ -381,8 +381,14 @@ async def profile_chosen(callback: CallbackQuery, state: FSMContext, user: User 
             account=p.account,
             card=p.card,
         )
-        await callback.message.answer(f"✅ Загружен профиль: {p.name}. Выполняю расчёт...")
-        await _do_calculation(callback.message, state, user)
+        await callback.message.answer(f"✅ Загружен профиль: {p.name}.")
+        await callback.message.answer(
+            "▸ Шаг 10 из 11\n"
+            "Введите общую сумму дохода за год из справки 2-НДФЛ (в рублях и копейках):\n\n"
+            "ℹ️ Эти данные нужны для расчёта налоговой базы. "
+            "Хранятся в зашифрованном виде и никому не передаются."
+        )
+        await state.set_state(UploadStates.waiting_for_income)
 
     await callback.answer()
 

@@ -248,17 +248,7 @@ def _fill_appendix5(wb, data):
     deduction = data.get("deduction_amount", 0)
 
     if deduction_type == "education":
-        # 130 — обучение: Z42-AK42 + копейки AM42, AN42
         _write_amount_with_kopeks(ws, deduction, 26, 42)
-
-    # 180 — итого социальные вычеты с ограничением
-    _write_amount_with_kopeks(ws, deduction, 26, 23)
-
-    # 190 — общая сумма соц. вычетов по декларации
-    _write_amount_with_kopeks(ws, deduction, 26, 29)
-
-    # 200 — общая сумма стандартных и социальных вычетов
-    _write_amount_with_kopeks(ws, deduction, 26, 31)
 
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V47", today, font_size=8)
@@ -275,16 +265,10 @@ def _fill_appendix5_continued(wb, data):
     deduction = data.get("deduction_amount", 0)
 
     if deduction_type == "medical":
-        # 140 — медицина: Z9-AK9 + копейки AM9, AN9
         _write_amount_with_kopeks(ws, deduction, 26, 9)
 
-    # 180 — итого
     _write_amount_with_kopeks(ws, deduction, 26, 23)
-
-    # 190 — общая сумма
     _write_amount_with_kopeks(ws, deduction, 26, 29)
-
-    # 200 — общая сумма стандартных и социальных
     _write_amount_with_kopeks(ws, deduction, 26, 31)
 
     today = datetime.now().strftime("%d.%m.%Y")
