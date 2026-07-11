@@ -11,7 +11,6 @@ async def parse_excel(file_path: str) -> list[dict]:
     debug_path = os.path.join(DATA_TEMP_DIR, "excel_debug.txt")
     debug_lines = []
 
-    # Ищем заголовки и определяем колонки
     header_row, col_date, col_desc, col_amount = _find_headers(ws)
     debug_lines.append(f"Заголовки: строка={header_row}, дата={col_date}, описание={col_desc}, сумма={col_amount}")
 
@@ -28,19 +27,16 @@ async def parse_excel(file_path: str) -> list[dict]:
 
         cells = [str(c).strip() if c is not None else "" for c in row]
 
-        # Дата
         date = None
         if col_date is not None and col_date < len(cells):
             date = _parse_date(cells[col_date])
 
-        # Описание
         description = ""
         if col_desc is not None and col_desc < len(cells):
             description = cells[col_desc]
             description = description.replace('"', "").strip()
             description = re.sub(r"\s+", " ", description)
 
-        # Сумма
         amount = None
         if col_amount is not None and col_amount < len(cells):
             amount = _parse_amount(cells[col_amount])
@@ -73,13 +69,10 @@ def _write_debug(path, lines):
 
 
 def _find_headers(ws) -> tuple:
-    """
-    Ищет строку заголовков и возвращает (row_index, col_date, col_desc, col_amount).
-    Ищет по ключевым словам в первых 20 строках.
-    """
+    """Ищет строку заголовков. Возвращает (row, col_date, col_desc, col_amount)."""
     date_keywords = ["дата", "date", "день", "day"]
     desc_keywords = ["назначение", "описание", "description", "платеж", "получатель", "отправитель", "payee", "narrative"]
-    amount_keywords = ["сумма", "amount", "рубл", "rub", "₽", "сумма в валюте", "российские рубли"]
+    amount_keywords = ["сумма", "amount", "рубл", "rub", "₽"]
 
     for row_idx, row in enumerate(ws.iter_rows(max_row=20, values_only=True), start=1):
         if not row:
@@ -91,19 +84,20 @@ def _find_headers(ws) -> tuple:
         col_amount = None
 
         for i, cell in enumerate(cells):
-            # Ищем дату
+            # Дата
             if col_date is None and any(kw in cell for kw in date_keywords):
                 col_date = i
-            # Ищем описание
+                continue
+            # Описание
             if col_desc is None and any(kw in cell for kw in desc_keywords):
                 col_desc = i
-            # Ищем сумму (приоритет — российские рубли)
-            if any(kw in cell for kw in ["российские рубли", "рубл"]):
+                continue
+            # Сумма
+            if "российские рубли" in cell or "рубл" in cell:
                 col_amount = i
             elif col_amount is None and any(kw in cell for kw in amount_keywords):
                 col_amount = i
 
-        # Если нашли хотя бы дату и сумму — это заголовок
         if col_date is not None and col_amount is not None:
             return row_idx, col_date, col_desc, col_amount
 
@@ -111,17 +105,17 @@ def _find_headers(ws) -> tuple:
 
 
 def _parse_date(text: str) -> str | None:
-    """Парсит дату из строки в любом формате, возвращает ДД.ММ.ГГГГ."""
+    """Парсит дату в любом формате, возвращает ДД.ММ.ГГГГ."""
     if not text:
         return None
     text = text.strip()
 
-    # ISO: 2025-03-18, 2025-03-18 14:24:00
+    # ISO: 2025-03-18
     match = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
     if match:
         return f"{match.group(3)}.{match.group(2)}.{match.group(1)}"
 
-    # Российский: 18.03.2025, 18.03.2025 14:24:00
+    # Российский: 18.03.2025
     match = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
     if match:
         return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
@@ -136,8 +130,7 @@ def _parse_date(text: str) -> str | None:
 
 def _parse_amount(text: str) -> float | None:
     """
-    Извлекает сумму из ячейки.
-    Поддерживает форматы:
+    Извлекает сумму. Форматы:
     - 225.00 ₽, + 1 500.00 ₽, -200 000,00 ₽
     -225.00, 1500.00-, 200000
     """
@@ -145,7 +138,7 @@ def _parse_amount(text: str) -> float | None:
         return None
     text = text.strip()
 
-    # Вариант 1: со знаком ₽
+    # Со знаком ₽
     match = re.search(r"([+-]?)\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", text)
     if match:
         sign = match.group(1) or "+"
@@ -156,7 +149,7 @@ def _parse_amount(text: str) -> float | None:
         except ValueError:
             pass
 
-    # Вариант 2: число с минусом в конце (1500.00-)
+    # Число с минусом в конце: 1500.00-
     match = re.search(r"(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*-", text)
     if match:
         raw = match.group(1).replace(" ", "").replace(",", ".")
@@ -165,7 +158,7 @@ def _parse_amount(text: str) -> float | None:
         except ValueError:
             pass
 
-    # Вариант 3: просто число со знаком
+    # Число со знаком
     match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)", text)
     if match:
         raw = match.group(2).replace(" ", "").replace(",", ".")
