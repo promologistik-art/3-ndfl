@@ -1,7 +1,6 @@
 import re
 import os
 import openpyxl
-from datetime import datetime
 from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, DATA_TEMP_DIR
 
 
@@ -28,17 +27,14 @@ async def parse_excel(file_path: str) -> list[dict]:
 
         cells = [str(c).strip() if c is not None else "" for c in row]
 
-        # Дата может быть в любой ячейке, в любом формате
         date = _extract_date(cells)
         if not date:
             continue
 
-        # Сумма может быть в любой ячейке, со знаком или без, с разными разделителями
         amount = _extract_amount(cells)
         if amount is None:
             continue
 
-        # Описание — самая длинная текстовая ячейка
         description = _extract_description(cells)
         if not description:
             continue
@@ -73,7 +69,6 @@ def _find_data_start(ws) -> int | None:
         row_text = " ".join(str(c).lower() for c in row if c)
         if "дата" in row_text and ("операции" in row_text or "платежа" in row_text or "проводки" in row_text):
             return row_idx + 1
-    # Если заголовок не найден, ищем первую строку с датой
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         for cell in row:
             if cell and _parse_date(str(cell)):
@@ -103,12 +98,10 @@ def _parse_date(text: str) -> str | None:
     if match:
         return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
-    # С объектом datetime из Excel
     return None
 
 
 def _extract_date(cells: list[str]) -> str | None:
-    """Извлекает первую найденную дату из ячеек строки."""
     for c in cells:
         date = _parse_date(c)
         if date:
@@ -117,9 +110,8 @@ def _extract_date(cells: list[str]) -> str | None:
 
 
 def _extract_amount(cells: list[str]) -> float | None:
-    """Извлекает сумму из ячеек строки."""
+    """Извлекает сумму из ячеек строки. Только со знаком ₽."""
     for c in cells:
-        # С ₽: + 4 000.00 ₽, -15,000.00 ₽, 200.00 ₽
         match = re.search(r"([+-]?)\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", c)
         if match:
             sign = match.group(1) or "+"
@@ -129,30 +121,14 @@ def _extract_amount(cells: list[str]) -> float | None:
                 return -amount if sign == "-" else amount
             except ValueError:
                 pass
-
-        # Без ₽: -15000, +200.00
-        match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)", c)
-        if match:
-            raw = match.group(2).replace(" ", "").replace(",", ".")
-            # Проверяем, что это именно сумма, а не номер документа
-            try:
-                amount = float(raw)
-                if amount > 0.01:  # фильтруем нулевые суммы и номера документов
-                    return -amount if match.group(1) == "-" else amount
-            except ValueError:
-                pass
-
     return None
 
 
 def _extract_description(cells: list[str]) -> str:
-    """Извлекает описание — самая длинная текстовая ячейка."""
     description = ""
     for c in cells:
-        # Пропускаем даты
         if _parse_date(c):
             continue
-        # Пропускаем суммы
         if "₽" in c:
             continue
         if re.match(r"^[+-]?\d+[.,]?\d*$", c.replace(" ", "")):
