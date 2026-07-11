@@ -143,9 +143,12 @@ def _fill_title(wb, data):
             col += 2
     _safe_write(ws, "Y37", "1")
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
+
+    # Количество листов — 5 (Титульный, Раздел 1, Прил-е к Разделу 1, Раздел 2, Прил.5/продолжение)
     _safe_write(ws, "S44", "0")
     _safe_write(ws, "U44", "0")
     _safe_write(ws, "W44", "5")
+
     _safe_write(ws, "BQ44", "0")
     _safe_write(ws, "BS44", "0")
     _safe_write(ws, "BU44", "0")
@@ -188,10 +191,8 @@ def _fill_section1(wb, data):
     tax_return = data.get("tax_return", 0)
 
     if tax_to_pay > 0:
-        # Сумма к уплате (040): U16-AG16
         _write_number_field(ws, str(round(tax_to_pay)), 21, 16)
     elif tax_return > 0:
-        # Сумма к возврату (050): U18-AG18
         _write_number_field(ws, str(round(tax_return)), 21, 18)
 
     today = datetime.now().strftime("%d.%m.%Y")
@@ -205,10 +206,8 @@ def _fill_return_request(wb, data):
     _write_page_number(ws, "003")
     _write_fio_section_header(ws, data)
 
-    tax_to_pay = data.get("tax_to_pay", 0)
     tax_return = data.get("tax_return", 0)
-    amount = tax_return if tax_return > 0 else 0
-    _write_number_field(ws, str(round(amount)), 13, 11)
+    _write_number_field(ws, str(round(tax_return)), 13, 11)
 
     bik = str(data.get("bik", ""))
     if len(bik) == 9:
@@ -257,15 +256,17 @@ def _fill_section2(wb, data):
 # ==================== ПРИЛОЖЕНИЕ 5 ====================
 
 def _fill_appendix5(wb, data):
+    """Только для обучения."""
+    deduction_type = data.get("deduction_type", "")
+    if deduction_type != "education":
+        return
+
     ws = wb["Прил.5"]
     _write_page_number(ws, "005")
     _write_fio_section_header(ws, data)
 
-    deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
-
-    if deduction_type == "education":
-        _write_amount_with_kopeks(ws, deduction, 26, 42)
+    _write_amount_with_kopeks(ws, deduction, 26, 42)
 
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V47", today, font_size=8)
@@ -274,16 +275,17 @@ def _fill_appendix5(wb, data):
 # ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ) ====================
 
 def _fill_appendix5_continued(wb, data):
+    """Только для медицины."""
+    deduction_type = data.get("deduction_type", "")
+    if deduction_type != "medical":
+        return
+
     ws = wb["Прил.5 (продолжение)"]
-    _write_page_number(ws, "006")
+    _write_page_number(ws, "005")
     _write_fio_section_header(ws, data)
 
-    deduction_type = data.get("deduction_type", "")
     deduction = data.get("deduction_amount", 0)
-
-    if deduction_type == "medical":
-        _write_amount_with_kopeks(ws, deduction, 26, 9)
-
+    _write_amount_with_kopeks(ws, deduction, 26, 9)
     _write_amount_with_kopeks(ws, deduction, 26, 23)
     _write_amount_with_kopeks(ws, deduction, 26, 29)
     _write_amount_with_kopeks(ws, deduction, 26, 31)

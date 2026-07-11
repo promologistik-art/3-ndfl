@@ -436,7 +436,6 @@ async def tax_paid(message: Message, state: FSMContext, user: User = None):
         return
     await state.update_data(tax_paid=amount)
 
-    # Проверяем, будет ли доплата
     data = await state.get_data()
     income_val = data.get("income", 0)
     deduction_val = data.get("total_amount", 0)
@@ -465,7 +464,6 @@ async def tax_paid(message: Message, state: FSMContext, user: User = None):
         await state.set_state(UploadStates.waiting_for_confirm_calculation)
         return
 
-    # Если возврат — сохраняем и считаем
     await _save_profile_and_calculate(message, state, user)
 
 
@@ -592,22 +590,10 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
     finally:
         session3.close()
 
+    instruction = _get_instruction(deduction_type)
+
     await message.answer(
-        "✅ <b>Декларация готова!</b>\n\n"
-        "<b>Что делать дальше:</b>\n\n"
-        "1. <b>Откройте файл</b> в Excel, проверьте заполненные данные\n"
-        "2. <b>Распечатайте</b> декларацию на листах А4\n"
-        "3. <b>Подпишите</b> каждый лист в ячейках «Подпись» (только синей ручкой!)\n"
-        "4. <b>Приложите копии документов:</b>\n"
-        "   — Справка об оплате медицинских услуг (из учреждения)\n"
-        "   — Договор с учреждением (если есть)\n"
-        "   — Лицензия учреждения (если есть)\n"
-        "   — Справка 2-НДФЛ (с работы)\n"
-        "5. <b>Подайте в налоговую</b> одним из способов:\n"
-        "   — Лично в отделении ФНС (запись через nalog.ru)\n"
-        "   — Почтой заказным письмом с описью вложения\n\n"
-        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
-        "это нормально, данные в ячейках сохранены.",
+        f"✅ <b>Декларация готова!</b>\n\n{instruction}",
         reply_markup=download_kb(declaration_id)
     )
 
@@ -620,6 +606,60 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         session4.close()
 
     await state.clear()
+
+
+def _get_instruction(deduction_type: str) -> str:
+    base = (
+        "<b>Что делать дальше:</b>\n\n"
+        "1. <b>Откройте файл</b> в Excel, проверьте заполненные данные\n"
+        "2. <b>Распечатайте</b> следующие листы на А4:\n"
+    )
+
+    if deduction_type == "medical":
+        base += (
+            "   — Титульный лист\n"
+            "   — Раздел 1\n"
+            "   — Приложение к Разделу 1\n"
+            "   — Раздел 2\n"
+            "   — Приложение 5 (продолжение)\n"
+        )
+    elif deduction_type == "education":
+        base += (
+            "   — Титульный лист\n"
+            "   — Раздел 1\n"
+            "   — Приложение к Разделу 1\n"
+            "   — Раздел 2\n"
+            "   — Приложение 5\n"
+        )
+
+    base += (
+        "3. <b>Подпишите</b> каждый лист (только синей ручкой!)\n"
+        "4. <b>Приложите копии документов:</b>\n"
+    )
+
+    if deduction_type == "medical":
+        base += (
+            "   — Справка об оплате медицинских услуг\n"
+            "   — Договор с учреждением\n"
+            "   — Лицензия учреждения\n"
+        )
+    elif deduction_type == "education":
+        base += (
+            "   — Договор на обучение\n"
+            "   — Чеки/квитанции об оплате\n"
+            "   — Лицензия учебного заведения\n"
+        )
+
+    base += (
+        "   — Справка о доходах: 2-НДФЛ (для наёмных работников) или справка из приложения «Мой налог» (для самозанятых)\n\n"
+        "5. <b>Подайте в налоговую</b> одним из способов:\n"
+        "   — Лично в отделении ФНС (запись через nalog.ru)\n"
+        "   — Почтой заказным письмом с описью вложения\n\n"
+        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — "
+        "это нормально, данные в ячейках сохранены."
+    )
+
+    return base
 
 
 @router.callback_query(F.data == "confirm_no")
