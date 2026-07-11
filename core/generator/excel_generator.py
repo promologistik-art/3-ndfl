@@ -34,7 +34,7 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
     for sheet_name in print_sheets:
         ws = wb[sheet_name]
         ws.sheet_properties.tabColor = "00CC00"
-        _write_page_number(ws, str(page_number).zfill(3))
+        _write_page_number(ws, str(page_number).zfill(3), is_title=(sheet_name == "Титульный лист"))
         page_number += 1
 
     for sheet_name in wb.sheetnames:
@@ -107,11 +107,16 @@ def _write_amount_with_kopeks(ws, amount, start_col, row):
     _safe_write(ws, f"AN{row}", kopeks[1])
 
 
-def _write_page_number(ws, number_str):
+def _write_page_number(ws, number_str, is_title=False):
     number_str = str(number_str).zfill(3)
-    _safe_write(ws, "X4", number_str[0])
-    _safe_write(ws, "Y4", number_str[1])
-    _safe_write(ws, "Z4", number_str[2])
+    if is_title:
+        _safe_write(ws, "AU4", number_str[0])
+        _safe_write(ws, "AW4", number_str[1])
+        _safe_write(ws, "AY4", number_str[2])
+    else:
+        _safe_write(ws, "X4", number_str[0])
+        _safe_write(ws, "Y4", number_str[1])
+        _safe_write(ws, "Z4", number_str[2])
 
 
 def _write_fio_section_header(ws, data):
@@ -353,7 +358,6 @@ def _fill_appendix7(wb, data):
     if property_cadastral:
         _write_number_field(ws, property_cadastral, 1, 14)
 
-    # Адрес: разбиваем на строки по 40 символов, каждая строка побуквенно в A16, A18...
     if property_address:
         lines = [property_address[i:i+40] for i in range(0, len(property_address), 40)]
         for idx, line in enumerate(lines[:7]):
