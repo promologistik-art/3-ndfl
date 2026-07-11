@@ -345,27 +345,25 @@ def _fill_appendix7(wb, data):
     income = data.get("income", 0)
     total_deduction = data.get("total_deduction", 0)
 
-    # 010 — код объекта: K10
     _safe_write(ws, "K10", property_object_type)
-
-    # 020 — код признака налогоплательщика: Y10, Z10 = "01"
     _safe_write(ws, "Y10", "0")
     _safe_write(ws, "Z10", "1")
-
-    # 030 — способ приобретения: Y12 = "2"
     _safe_write(ws, "Y12", "2")
 
-    # 032 — кадастровый номер: A14-AN14
     if property_cadastral:
         _write_number_field(ws, property_cadastral, 1, 14)
 
-    # 033 — адрес (разбиваем на строки по 40 символов)
+    # Адрес: разбиваем на строки по 40 символов, каждая строка побуквенно в A16, A18...
     if property_address:
         lines = [property_address[i:i+40] for i in range(0, len(property_address), 40)]
         for idx, line in enumerate(lines[:7]):
-            _safe_write(ws, f"A{16 + idx * 2}", line)
+            row = 16 + idx * 2
+            for col_idx, char in enumerate(line):
+                if col_idx >= 40:
+                    break
+                col_letter = get_column_letter(col_idx + 1)
+                _safe_write(ws, f"{col_letter}{row}", char)
 
-    # 040 — дата акта: AD30, AE30 (день), AG30, AH30 (месяц), AJ30-AM30 (год)
     if property_act_date and len(property_act_date) == 10:
         _safe_write(ws, "AD30", property_act_date[0])
         _safe_write(ws, "AE30", property_act_date[1])
@@ -376,7 +374,6 @@ def _fill_appendix7(wb, data):
         _safe_write(ws, "AL30", property_act_date[8])
         _safe_write(ws, "AM30", property_act_date[9])
 
-    # 050 — дата регистрации: строка 32
     if property_reg_date and len(property_reg_date) == 10:
         _safe_write(ws, "AD32", property_reg_date[0])
         _safe_write(ws, "AE32", property_reg_date[1])
@@ -387,23 +384,17 @@ def _fill_appendix7(wb, data):
         _safe_write(ws, "AL32", property_reg_date[8])
         _safe_write(ws, "AM32", property_reg_date[9])
 
-    # 080 — расходы на покупку: AD34-AK34 + копейки AM34, AN34
     ded_price = min(property_price, 2_000_000)
     _write_amount_with_kopeks(ws, ded_price, 30, 34)
 
-    # 090 — проценты по ипотеке: строка 36
     if property_mortgage > 0:
         ded_mortgage = min(property_mortgage, 3_000_000)
         _write_amount_with_kopeks(ws, ded_mortgage, 30, 36)
 
-    # 140 — налоговая база: Z51-AK51 + копейки AM51, AN51
     tax_base = max(0, income - total_deduction)
     _write_amount_with_kopeks(ws, tax_base, 26, 51)
-
-    # 150 — вычет за период: строка 53
     _write_amount_with_kopeks(ws, ded_price, 30, 53)
 
-    # 170 — остаток на следующий год: строка 57
     remaining = max(0, property_price - ded_price)
     _write_amount_with_kopeks(ws, remaining, 30, 57)
 
