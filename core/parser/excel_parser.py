@@ -1,7 +1,7 @@
 import re
 import os
 import openpyxl
-from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, DATA_TEMP_DIR
+from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, PROPERTY_KEYWORDS, DATA_TEMP_DIR
 
 
 async def parse_excel(file_path: str) -> list[dict]:
@@ -69,7 +69,6 @@ def _write_debug(path, lines):
 
 
 def _find_headers(ws) -> tuple:
-    """Ищет строку заголовков. Возвращает (row, col_date, col_desc, col_amount)."""
     date_keywords = ["дата", "date", "день", "day"]
     desc_keywords = ["назначение", "описание", "description", "платеж", "получатель", "отправитель", "payee", "narrative"]
     amount_keywords = ["сумма", "amount", "рубл", "rub", "₽"]
@@ -84,15 +83,12 @@ def _find_headers(ws) -> tuple:
         col_amount = None
 
         for i, cell in enumerate(cells):
-            # Дата
             if col_date is None and any(kw in cell for kw in date_keywords):
                 col_date = i
                 continue
-            # Описание
             if col_desc is None and any(kw in cell for kw in desc_keywords):
                 col_desc = i
                 continue
-            # Сумма
             if "российские рубли" in cell or "рубл" in cell:
                 col_amount = i
             elif col_amount is None and any(kw in cell for kw in amount_keywords):
@@ -105,22 +101,18 @@ def _find_headers(ws) -> tuple:
 
 
 def _parse_date(text: str) -> str | None:
-    """Парсит дату в любом формате, возвращает ДД.ММ.ГГГГ."""
     if not text:
         return None
     text = text.strip()
 
-    # ISO: 2025-03-18
     match = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
     if match:
         return f"{match.group(3)}.{match.group(2)}.{match.group(1)}"
 
-    # Российский: 18.03.2025
     match = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
     if match:
         return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
 
-    # Американский: 03/18/2025
     match = re.search(r"(\d{2})/(\d{2})/(\d{4})", text)
     if match:
         return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
@@ -129,16 +121,10 @@ def _parse_date(text: str) -> str | None:
 
 
 def _parse_amount(text: str) -> float | None:
-    """
-    Извлекает сумму. Форматы:
-    - 225.00 ₽, + 1 500.00 ₽, -200 000,00 ₽
-    -225.00, 1500.00-, 200000
-    """
     if not text:
         return None
     text = text.strip()
 
-    # Со знаком ₽
     match = re.search(r"([+-]?)\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", text)
     if match:
         sign = match.group(1) or "+"
@@ -149,7 +135,6 @@ def _parse_amount(text: str) -> float | None:
         except ValueError:
             pass
 
-    # Число с минусом в конце: 1500.00-
     match = re.search(r"(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*-", text)
     if match:
         raw = match.group(1).replace(" ", "").replace(",", ".")
@@ -158,7 +143,6 @@ def _parse_amount(text: str) -> float | None:
         except ValueError:
             pass
 
-    # Число со знаком
     match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)", text)
     if match:
         raw = match.group(2).replace(" ", "").replace(",", ".")
@@ -182,6 +166,10 @@ def _detect_category(description: str) -> str | None:
         if kw.lower() in desc_lower:
             return "education"
 
+    for kw in PROPERTY_KEYWORDS:
+        if kw.lower() in desc_lower:
+            return "property"
+
     medical_patterns = [
         r"гбуз", r"г\s*б\s*у\s*з", r"поликлин", r"госпитал",
         r"диспансер", r"роддом", r"мед\s*центр", r"стоматолог", r"зубн",
@@ -202,5 +190,14 @@ def _detect_category(description: str) -> str | None:
     for pattern in education_patterns:
         if re.search(pattern, desc_lower):
             return "education"
+
+    property_patterns = [
+        r"купл", r"продаж", r"гараж", r"квартир", r"дом", r"недвижим",
+        r"ипотек", r"дду", r"долев", r"участк", r"земел", r"коттедж",
+        r"таунхаус", r"апартамент", r"жил", r"строй", r"новострой"
+    ]
+    for pattern in property_patterns:
+        if re.search(pattern, desc_lower):
+            return "property"
 
     return None
