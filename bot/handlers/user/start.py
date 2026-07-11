@@ -34,26 +34,16 @@ async def cmd_start(message: Message, state: FSMContext, user: User = None):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📄 Загрузить выписку", callback_data="choice_file")],
             [InlineKeyboardButton(text="📝 Ответить на вопросы", callback_data="choice_manual")],
+            [InlineKeyboardButton(text="🔙 Главное меню", callback_data="menu_back")],
         ])
     )
 
 
 @router.callback_query(F.data == "choice_file")
-async def choice_file(callback: CallbackQuery, state: FSMContext, user: User = None):
-    if not user:
-        await callback.answer("Ошибка")
-        return
-
-    if user.access_type == ACCESS_DEMO and user.declarations_used >= 1:
-        await callback.answer("Лимит демо-доступа исчерпан", show_alert=True)
-        return
-    if user.access_type == "monthly" and user.declarations_used >= 1:
-        await callback.answer("Лимит на этот месяц исчерпан", show_alert=True)
-        return
-
+async def choice_file(callback: CallbackQuery, state: FSMContext):
     from bot.handlers.user.upload import UploadStates
     await state.set_state(UploadStates.waiting_for_file)
-    await callback.message.edit_text(
+    await callback.message.answer(
         "📤 Отправьте банковскую выписку в формате PDF или Excel.\n\n"
         "Я проанализирую её и найду платежи, подходящие для налоговых вычетов.",
         reply_markup=None
@@ -73,7 +63,7 @@ async def choice_manual(callback: CallbackQuery, state: FSMContext):
         selected_deductions={},
     )
     await state.set_state(UploadStates.waiting_for_deduction_selection)
-    await callback.message.edit_text(
+    await callback.message.answer(
         "Выберите вычеты, которые хотите заявить:",
         reply_markup=_deduction_selection_kb(0, 0, 0, {})
     )
@@ -158,7 +148,7 @@ async def back_to_menu(callback: CallbackQuery, user: User = None):
         f"📌 Тариф: <b>{_access_text(user.access_type)}</b>\n"
         f"📄 Осталось деклараций: <b>{_remaining_text(user)}</b>"
     )
-    await callback.message.edit_text(text, reply_markup=main_menu_kb())
+    await callback.message.answer(text, reply_markup=main_menu_kb())
     await callback.answer()
 
 
