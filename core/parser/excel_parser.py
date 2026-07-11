@@ -102,10 +102,9 @@ def _parse_date(text: str) -> str | None:
 
 
 def _extract_date(cells: list[str]) -> str | None:
-    for c in cells:
-        date = _parse_date(c)
-        if date:
-            return date
+    """Извлекает дату только из первой ячейки (колонка Дата операции)."""
+    if cells:
+        return _parse_date(cells[0])
     return None
 
 
@@ -125,10 +124,9 @@ def _extract_amount(cells: list[str]) -> float | None:
 
 
 def _extract_description(cells: list[str]) -> str:
+    """Извлекает описание — самая длинная текстовая ячейка."""
     description = ""
     for c in cells:
-        if _parse_date(c):
-            continue
         if "₽" in c:
             continue
         if re.match(r"^[+-]?\d+[.,]?\d*$", c.replace(" ", "")):
