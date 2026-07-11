@@ -10,36 +10,56 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(_BASE_DIR, "..", "..", "templates", "ndfl_2025.xlsx")
 TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
-# Листы, которые нужно печатать (общие для всех типов вычетов)
-PRINT_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
+# Базовые листы (всегда заполняются)
+BASE_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
 
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
     excel_path = os.path.join(DATA_TEMP_DIR, f"declaration_{declaration_id}.xlsx")
     wb = load_workbook(TEMPLATE_PATH)
 
-    deduction_type = data.get("deduction_type", "medical")
-    print_sheets = list(PRINT_SHEETS)
+    selected = data.get("selected_deductions", {})
+    print_sheets = list(BASE_SHEETS)
 
-    if deduction_type == "medical":
-        print_sheets.append("Прил.5 (продолжение)")
-    elif deduction_type == "education":
+    # Определяем какие листы заполнять
+    if selected.get("education"):
         print_sheets.append("Прил.5")
+    if selected.get("medical"):
+        print_sheets.append("Прил.5 (продолжение)")
+    if selected.get("property"):
+        print_sheets.append("Прил.7")
+    if selected.get("investment"):
+        print_sheets.append("Прил.5")
+        print_sheets.append("Расчет к прил.5")
 
-    # Красим ярлыки
-    for sheet_name in wb.sheetnames:
+    # Нумерация страниц
+    page_number = 1
+    for sheet_name in print_sheets:
         ws = wb[sheet_name]
-        if sheet_name in print_sheets:
-            ws.sheet_properties.tabColor = "00CC00"  # зелёный
-        else:
-            ws.sheet_properties.tabColor = "C0C0C0"  # серый
+        ws.sheet_properties.tabColor = "00CC00"
+        _write_page_number(ws, str(page_number).zfill(3))
+        page_number += 1
 
-    _fill_title(wb, data)
+    # Серый цвет для ненужных листов
+    for sheet_name in wb.sheetnames:
+        if sheet_name not in print_sheets:
+            wb[sheet_name].sheet_properties.tabColor = "C0C0C0"
+
+    # Заполняем данные
+    _fill_title(wb, data, len(print_sheets))
     _fill_section1(wb, data)
     _fill_return_request(wb, data)
     _fill_section2(wb, data)
-    _fill_appendix5(wb, data)
-    _fill_appendix5_continued(wb, data)
+
+    if selected.get("education"):
+        _fill_appendix5_education(wb, data)
+    if selected.get("medical"):
+        _fill_appendix5_medical(wb, data)
+    if selected.get("property"):
+        _fill_appendix7(wb, data)
+    if selected.get("investment"):
+        _fill_appendix5_investment(wb, data)
+        _fill_calc_appendix5(wb, data)
 
     wb.save(excel_path)
     return excel_path
@@ -112,7 +132,7 @@ def _write_fio_section_header(ws, data):
 
 # ==================== ТИТУЛЬНЫЙ ЛИСТ ====================
 
-def _fill_title(wb, data):
+def _fill_title(wb, data, total_pages):
     ws = wb["Титульный лист"]
     _write_inn(ws, data.get("taxpayer_inn", ""))
     _safe_write(ws, "K11", "0")
@@ -163,9 +183,10 @@ def _fill_title(wb, data):
     _safe_write(ws, "Y37", "1")
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
 
-    _safe_write(ws, "S44", "0")
-    _safe_write(ws, "U44", "0")
-    _safe_write(ws, "W44", "5")
+    pages_str = str(total_pages).zfill(3)
+    _safe_write(ws, "S44", pages_str[0])
+    _safe_write(ws, "U44", pages_str[1])
+    _safe_write(ws, "W44", pages_str[2])
 
     _safe_write(ws, "BQ44", "0")
     _safe_write(ws, "BS44", "0")
@@ -199,9 +220,7 @@ def _write_inn(ws, inn):
 
 def _fill_section1(wb, data):
     ws = wb["Раздел 1"]
-    _write_page_number(ws, "002")
     _write_fio_section_header(ws, data)
-
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
 
@@ -221,7 +240,6 @@ def _fill_section1(wb, data):
 
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
-    _write_page_number(ws, "003")
     _write_fio_section_header(ws, data)
 
     tax_return = data.get("tax_return", 0)
@@ -244,13 +262,12 @@ def _fill_return_request(wb, data):
 
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
-    _write_page_number(ws, "004")
     _write_fio_section_header(ws, data)
     _safe_write(ws, "Y9", "0")
     _safe_write(ws, "Z9", "1")
     income = data.get("income", 0)
     _write_amount_with_kopeks(ws, income, 25, 11)
-    deduction = data.get("deduction_amount", 0)
+    deduction = data.get("total_deduction", 0)
     _write_amount_with_kopeks(ws, deduction, 25, 17)
     tax_base = max(0, income - deduction)
     _write_amount_with_kopeks(ws, tax_base, 25, 21)
@@ -271,40 +288,66 @@ def _fill_section2(wb, data):
     _safe_write(ws, "V59", today, font_size=8)
 
 
-# ==================== ПРИЛОЖЕНИЕ 5 ====================
+# ==================== ПРИЛОЖЕНИЕ 5 (ОБУЧЕНИЕ) ====================
 
-def _fill_appendix5(wb, data):
-    deduction_type = data.get("deduction_type", "")
-    if deduction_type != "education":
-        return
-
+def _fill_appendix5_education(wb, data):
     ws = wb["Прил.5"]
-    _write_page_number(ws, "005")
     _write_fio_section_header(ws, data)
-
-    deduction = data.get("deduction_amount", 0)
-    _write_amount_with_kopeks(ws, deduction, 26, 42)
-
+    education_total = data.get("education_total", 0)
+    _write_amount_with_kopeks(ws, education_total, 26, 42)
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V47", today, font_size=8)
 
 
-# ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ) ====================
+# ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ — МЕДИЦИНА) ====================
 
-def _fill_appendix5_continued(wb, data):
-    deduction_type = data.get("deduction_type", "")
-    if deduction_type != "medical":
-        return
-
+def _fill_appendix5_medical(wb, data):
     ws = wb["Прил.5 (продолжение)"]
-    _write_page_number(ws, "005")
     _write_fio_section_header(ws, data)
-
-    deduction = data.get("deduction_amount", 0)
-    _write_amount_with_kopeks(ws, deduction, 26, 9)
-    _write_amount_with_kopeks(ws, deduction, 26, 23)
-    _write_amount_with_kopeks(ws, deduction, 26, 29)
-    _write_amount_with_kopeks(ws, deduction, 26, 31)
-
+    medical_total = data.get("medical_total", 0)
+    _write_amount_with_kopeks(ws, medical_total, 26, 9)
+    _write_amount_with_kopeks(ws, medical_total, 26, 23)
+    _write_amount_with_kopeks(ws, medical_total, 26, 29)
+    _write_amount_with_kopeks(ws, medical_total, 26, 31)
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V54", today, font_size=8)
+
+
+# ==================== ПРИЛОЖЕНИЕ 5 (ИНВЕСТИЦИИ) ====================
+
+def _fill_appendix5_investment(wb, data):
+    ws = wb["Прил.5"]
+    _write_fio_section_header(ws, data)
+    investment_amount = data.get("investment_amount", 0)
+    _write_amount_with_kopeks(ws, investment_amount, 26, 42)
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V47", today, font_size=8)
+
+
+# ==================== РАСЧЁТ К ПРИЛ.5 ====================
+
+def _fill_calc_appendix5(wb, data):
+    ws = wb["Расчет к прил.5"]
+    _write_fio_section_header(ws, data)
+    investment_amount = data.get("investment_amount", 0)
+    _write_amount_with_kopeks(ws, investment_amount, 26, 9)
+    _safe_write(ws, "D80", "1")
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V47", today, font_size=8)
+
+
+# ==================== ПРИЛОЖЕНИЕ 7 (ИМУЩЕСТВО) ====================
+
+def _fill_appendix7(wb, data):
+    ws = wb["Прил.7"]
+    _write_fio_section_header(ws, data)
+
+    property_price = data.get("property_price", 0)
+    property_mortgage = data.get("property_mortgage", 0)
+
+    _write_amount_with_kopeks(ws, property_price, 26, 9)
+    if property_mortgage > 0:
+        _write_amount_with_kopeks(ws, property_mortgage, 26, 13)
+
+    today = datetime.now().strftime("%d.%m.%Y")
+    _safe_write(ws, "V47", today, font_size=8)
