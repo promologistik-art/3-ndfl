@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from datetime import datetime, timezone
@@ -25,9 +25,59 @@ async def cmd_start(message: Message, state: FSMContext, user: User = None):
         f"Я помогу рассчитать налоговый вычет и сформировать декларацию 3-НДФЛ.\n\n"
         f"📌 Ваш тариф: <b>{_access_text(user.access_type)}</b>\n"
         f"📄 Осталось деклараций: <b>{_remaining_text(user)}</b>\n\n"
-        f"Загрузите банковскую выписку, а я найду подходящие платежи и запрошу недостающие данные."
+        f"Загрузите банковскую выписку — я найду подходящие платежи, "
+        f"или ответьте на вопросы — я запрошу недостающие данные.\n\n"
+        f"Выберите способ заполнения:"
     )
-    await message.answer(text, reply_markup=main_menu_kb())
+    await message.answer(
+        text,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📄 Загрузить выписку", callback_data="choice_file")],
+            [InlineKeyboardButton(text="📝 Ответить на вопросы", callback_data="choice_manual")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "choice_file")
+async def choice_file(callback: CallbackQuery, state: FSMContext, user: User = None):
+    if not user:
+        await callback.answer("Ошибка")
+        return
+
+    if user.access_type == ACCESS_DEMO and user.declarations_used >= 1:
+        await callback.answer("Лимит демо-доступа исчерпан", show_alert=True)
+        return
+    if user.access_type == "monthly" and user.declarations_used >= 1:
+        await callback.answer("Лимит на этот месяц исчерпан", show_alert=True)
+        return
+
+    from bot.handlers.user.upload import UploadStates
+    await state.set_state(UploadStates.waiting_for_file)
+    await callback.message.edit_text(
+        "📤 Отправьте банковскую выписку в формате PDF или Excel.\n\n"
+        "Я проанализирую её и найду платежи, подходящие для налоговых вычетов.",
+        reply_markup=None
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "choice_manual")
+async def choice_manual(callback: CallbackQuery, state: FSMContext):
+    from bot.handlers.user.upload import UploadStates, _deduction_selection_kb
+    await state.update_data(
+        parsed_payments=[],
+        medical_total=0,
+        education_total=0,
+        property_total=0,
+        first_payment_date="",
+        selected_deductions={},
+    )
+    await state.set_state(UploadStates.waiting_for_deduction_selection)
+    await callback.message.edit_text(
+        "Выберите вычеты, которые хотите заявить:",
+        reply_markup=_deduction_selection_kb(0, 0, 0, {})
+    )
+    await callback.answer()
 
 
 @router.message(Command("help"))
@@ -39,12 +89,12 @@ async def cmd_help(message: Message, user: User = None):
         "🏥 Медицинские услуги\n"
         "🎓 Обучение\n"
         "📈 Инвестиционный вычет (в разработке)\n"
-        "🏠 Имущественный вычет (в разработке)\n\n"
+        "🏠 Имущественный вычет\n\n"
         "<b>Как пользоваться:</b>\n"
-        "1. Загрузите банковскую выписку (PDF или Excel)\n"
-        "2. Бот найдёт подходящие платежи\n"
-        "3. При необходимости загрузите фото договора/справки\n"
-        "4. Проверьте данные и получите расчёт\n\n"
+        "1. Выберите способ: загрузить выписку или ответить на вопросы\n"
+        "2. Выберите типы вычетов\n"
+        "3. Введите необходимые данные\n"
+        "4. Проверьте расчёт и получите декларацию\n\n"
         "<b>Тарифы:</b>\n"
         "🆓 Демо — 1 декларация, только расчёт\n"
         "📅 Месячный — 1 декларация в месяц, 100₽\n"

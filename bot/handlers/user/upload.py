@@ -18,7 +18,6 @@ router = Router()
 
 
 class UploadStates(StatesGroup):
-    waiting_for_choice = State()
     waiting_for_file = State()
     waiting_for_deduction_selection = State()
     waiting_for_medical_amount = State()
@@ -59,6 +58,7 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
         await callback.answer("Лимит на этот месяц исчерпан", show_alert=True)
         return
 
+    # Показываем выбор способа
     await callback.message.edit_text(
         "Выберите способ заполнения декларации:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -66,11 +66,10 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
             [InlineKeyboardButton(text="📝 Ответить на вопросы", callback_data="choice_manual")],
         ])
     )
-    await state.set_state(UploadStates.waiting_for_choice)
     await callback.answer()
 
 
-@router.callback_query(F.data == "choice_file", UploadStates.waiting_for_choice)
+@router.callback_query(F.data == "choice_file")
 async def choice_file(callback: CallbackQuery, state: FSMContext):
     await callback.message.edit_text(
         "📤 Отправьте банковскую выписку в формате PDF или Excel.\n\n"
@@ -81,7 +80,7 @@ async def choice_file(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@router.callback_query(F.data == "choice_manual", UploadStates.waiting_for_choice)
+@router.callback_query(F.data == "choice_manual")
 async def choice_manual(callback: CallbackQuery, state: FSMContext):
     await state.update_data(
         parsed_payments=[],
@@ -250,42 +249,60 @@ async def _process_selected_deductions(callback: CallbackQuery, state: FSMContex
         return
 
     if selected.get("property"):
-        desc = ""
+        # Если объект уже определён из выписки — используем его
         property_payments = data.get("parsed_payments", [])
+        desc = ""
         for p in property_payments:
             if p.get("category") == "property":
                 desc = p.get("description", "").lower()
                 break
 
-        object_type = "5"
-        if "квартир" in desc:
-            object_type = "2"
-        elif "дом" in desc or "жил" in desc:
-            object_type = "1"
-        elif "гараж" in desc or "машино" in desc:
+        if desc:
             object_type = "5"
-        elif "земел" in desc or "участк" in desc:
-            object_type = "6"
-        elif "дач" in desc or "садов" in desc:
-            object_type = "8"
+            if "квартир" in desc:
+                object_type = "2"
+            elif "дом" in desc or "жил" in desc:
+                object_type = "1"
+            elif "гараж" in desc or "машино" in desc:
+                object_type = "5"
+            elif "земел" in desc or "участк" in desc:
+                object_type = "6"
+            elif "дач" in desc or "садов" in desc:
+                object_type = "8"
 
-        await state.update_data(property_object_type=object_type)
+            await state.update_data(property_object_type=object_type)
 
-        await callback.message.answer(
-            f"🏠 Мы обнаружили в выписке покупку объекта недвижимости: <b>{_object_type_name(object_type)}</b>.\n\n"
-            f"Для заполнения декларации необходимо ответить на несколько вопросов.\n"
-            f"Пожалуйста, будьте внимательны при заполнении. Вам понадобятся:\n"
-            f"— данные по ипотеке (если есть)\n"
-            f"— кадастровый номер\n"
-            f"— адрес объекта\n"
-            f"— дата акта приёма-передачи\n"
-            f"— дата регистрации права собственности\n\n"
-            f"ℹ️ Ваши данные используются только для заполнения декларации и нигде не хранятся.\n\n"
-            f"<b>Вопрос 1.</b> Тип объекта. Если неверно, выберите из списка:\n"
-            f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n"
-            f"5 — Гараж/машино-место\n6 — Земельный участок (ИЖС)\n8 — Дача/садовый дом\n\n"
-            f"Введите номер:"
-        )
+            await callback.message.answer(
+                f"🏠 Мы обнаружили в выписке покупку объекта недвижимости: <b>{_object_type_name(object_type)}</b>.\n\n"
+                f"Для заполнения декларации необходимо ответить на несколько вопросов.\n"
+                f"Пожалуйста, будьте внимательны при заполнении. Вам понадобятся:\n"
+                f"— данные по ипотеке (если есть)\n"
+                f"— кадастровый номер\n"
+                f"— адрес объекта\n"
+                f"— дата акта приёма-передачи\n"
+                f"— дата регистрации права собственности\n\n"
+                f"ℹ️ Ваши данные используются только для заполнения декларации и нигде не хранятся.\n\n"
+                f"<b>Вопрос 1.</b> Тип объекта. Если неверно, выберите из списка:\n"
+                f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n"
+                f"5 — Гараж/машино-место\n6 — Земельный участок (ИЖС)\n8 — Дача/садовый дом\n\n"
+                f"Введите номер:"
+            )
+        else:
+            # Ручной ввод — спрашиваем тип
+            await callback.message.answer(
+                f"🏠 Для заполнения декларации необходимо ответить на несколько вопросов.\n"
+                f"Пожалуйста, будьте внимательны при заполнении. Вам понадобятся:\n"
+                f"— данные по ипотеке (если есть)\n"
+                f"— кадастровый номер\n"
+                f"— адрес объекта\n"
+                f"— дата акта приёма-передачи\n"
+                f"— дата регистрации права собственности\n\n"
+                f"ℹ️ Ваши данные используются только для заполнения декларации и нигде не хранятся.\n\n"
+                f"<b>Вопрос 1.</b> Выберите тип объекта:\n"
+                f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n"
+                f"5 — Гараж/машино-место\n6 — Земельный участок (ИЖС)\n8 — Дача/садовый дом\n\n"
+                f"Введите номер:"
+            )
         await state.set_state(UploadStates.waiting_for_property_object_type)
         return
 
@@ -312,11 +329,10 @@ def _object_type_name(code: str) -> str:
 async def property_object_type(message: Message, state: FSMContext):
     text = message.text.strip()
     valid = ["1", "2", "3", "5", "6", "8"]
-    if text and text not in valid:
+    if not text or text not in valid:
         await message.answer("❌ Введите номер из списка (1, 2, 3, 5, 6, 8):")
         return
-    if text:
-        await state.update_data(property_object_type=text)
+    await state.update_data(property_object_type=text)
 
     data = await state.get_data()
     property_total = data.get("property_total", 0)
