@@ -359,9 +359,9 @@ def _fill_appendix7(wb, data):
     if property_cadastral:
         _write_number_field(ws, property_cadastral, 1, 14)
 
-    # 033 — адрес (разбиваем на строки по 60 символов)
+    # 033 — адрес (разбиваем на строки по 40 символов)
     if property_address:
-        lines = [property_address[i:i+60] for i in range(0, len(property_address), 60)]
+        lines = [property_address[i:i+40] for i in range(0, len(property_address), 40)]
         for idx, line in enumerate(lines[:7]):
             _safe_write(ws, f"A{16 + idx * 2}", line)
 
@@ -401,7 +401,7 @@ def _fill_appendix7(wb, data):
     _write_amount_with_kopeks(ws, tax_base, 26, 51)
 
     # 150 — вычет за период: строка 53
-    _write_amount_with_kopeks(ws, ded_price + ded_mortgage if property_mortgage > 0 else ded_price, 30, 53)
+    _write_amount_with_kopeks(ws, ded_price, 30, 53)
 
     # 170 — остаток на следующий год: строка 57
     remaining = max(0, property_price - ded_price)
