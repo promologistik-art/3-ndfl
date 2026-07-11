@@ -10,10 +10,29 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(_BASE_DIR, "..", "..", "templates", "ndfl_2025.xlsx")
 TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
+# Листы, которые нужно печатать (общие для всех типов вычетов)
+PRINT_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
+
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
     excel_path = os.path.join(DATA_TEMP_DIR, f"declaration_{declaration_id}.xlsx")
     wb = load_workbook(TEMPLATE_PATH)
+
+    deduction_type = data.get("deduction_type", "medical")
+    print_sheets = list(PRINT_SHEETS)
+
+    if deduction_type == "medical":
+        print_sheets.append("Прил.5 (продолжение)")
+    elif deduction_type == "education":
+        print_sheets.append("Прил.5")
+
+    # Красим ярлыки
+    for sheet_name in wb.sheetnames:
+        ws = wb[sheet_name]
+        if sheet_name in print_sheets:
+            ws.sheet_properties.tabColor = "00CC00"  # зелёный
+        else:
+            ws.sheet_properties.tabColor = "C0C0C0"  # серый
 
     _fill_title(wb, data)
     _fill_section1(wb, data)
@@ -144,7 +163,6 @@ def _fill_title(wb, data):
     _safe_write(ws, "Y37", "1")
     _write_fio_field(ws, data.get("taxpayer_phone", ""), 21, 39)
 
-    # Количество листов — 5 (Титульный, Раздел 1, Прил-е к Разделу 1, Раздел 2, Прил.5/продолжение)
     _safe_write(ws, "S44", "0")
     _safe_write(ws, "U44", "0")
     _safe_write(ws, "W44", "5")
@@ -256,7 +274,6 @@ def _fill_section2(wb, data):
 # ==================== ПРИЛОЖЕНИЕ 5 ====================
 
 def _fill_appendix5(wb, data):
-    """Только для обучения."""
     deduction_type = data.get("deduction_type", "")
     if deduction_type != "education":
         return
@@ -275,7 +292,6 @@ def _fill_appendix5(wb, data):
 # ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ) ====================
 
 def _fill_appendix5_continued(wb, data):
-    """Только для медицины."""
     deduction_type = data.get("deduction_type", "")
     if deduction_type != "medical":
         return
