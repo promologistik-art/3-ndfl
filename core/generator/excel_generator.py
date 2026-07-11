@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 from openpyxl import load_workbook
 from openpyxl.cell.cell import MergedCell
-from openpyxl.styles import Font
+from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 from bot.config import DATA_TEMP_DIR
 
@@ -11,6 +11,8 @@ TEMPLATE_PATH = os.path.join(_BASE_DIR, "..", "..", "templates", "ndfl_2025.xlsx
 TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
 BASE_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
+
+GREEN_FILL = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
 
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
@@ -56,9 +58,7 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
         _fill_appendix5_investment(wb, data)
         _fill_calc_appendix5(wb, data)
 
-    # Открываем на титульном листе
     wb.active = wb["Титульный лист"]
-
     wb.save(excel_path)
     return excel_path
 
@@ -191,9 +191,14 @@ def _fill_title(wb, data, total_pages):
     _safe_write(ws, "U44", pages_str[1])
     _safe_write(ws, "W44", pages_str[2])
 
-    _safe_write(ws, "BQ44", "0")
-    _safe_write(ws, "BS44", "0")
-    _safe_write(ws, "BU44", "0")
+    # Подсвечиваем зелёным ячейки для количества листов подтверждающих документов
+    _safe_write(ws, "BQ44", "?")
+    _safe_write(ws, "BS44", "?")
+    _safe_write(ws, "BU44", "?")
+    ws["BQ44"].fill = GREEN_FILL
+    ws["BS44"].fill = GREEN_FILL
+    ws["BU44"].fill = GREEN_FILL
+
     _safe_write(ws, "D48", "1")
     _write_fio_field(ws, data.get("last_name", ""), 2, 50)
     _write_fio_field(ws, data.get("first_name", ""), 2, 52)

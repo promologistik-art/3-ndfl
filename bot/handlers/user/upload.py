@@ -18,6 +18,7 @@ router = Router()
 
 
 class UploadStates(StatesGroup):
+    waiting_for_choice = State()
     waiting_for_file = State()
     waiting_for_deduction_selection = State()
     waiting_for_medical_amount = State()
@@ -59,11 +60,42 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
         return
 
     await callback.message.edit_text(
+        "Выберите способ заполнения декларации:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📄 Загрузить выписку", callback_data="choice_file")],
+            [InlineKeyboardButton(text="📝 Ответить на вопросы", callback_data="choice_manual")],
+        ])
+    )
+    await state.set_state(UploadStates.waiting_for_choice)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "choice_file", UploadStates.waiting_for_choice)
+async def choice_file(callback: CallbackQuery, state: FSMContext):
+    await callback.message.edit_text(
         "📤 Отправьте банковскую выписку в формате PDF или Excel.\n\n"
         "Я проанализирую её и найду платежи, подходящие для налоговых вычетов.",
         reply_markup=None
     )
     await state.set_state(UploadStates.waiting_for_file)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "choice_manual", UploadStates.waiting_for_choice)
+async def choice_manual(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(
+        parsed_payments=[],
+        medical_total=0,
+        education_total=0,
+        property_total=0,
+        first_payment_date="",
+        selected_deductions={},
+    )
+    await callback.message.edit_text(
+        "Выберите вычеты, которые хотите заявить:",
+        reply_markup=_deduction_selection_kb(0, 0, 0, {})
+    )
+    await state.set_state(UploadStates.waiting_for_deduction_selection)
     await callback.answer()
 
 
@@ -927,9 +959,9 @@ def _get_instruction(selected: dict) -> str:
         "5. <b>Подайте в налоговую</b> одним из способов:\n"
         "   — Лично в отделении ФНС (запись через nalog.ru)\n"
         "   — Почтой заказным письмом с описью вложения\n\n"
-        "⚠️ Не забудьте самостоятельно указать на титульном листе количество листов подтверждающих документов "
-        "в ячейках BQ44, BS44, BU44 (строка «страницах с приложением подтверждающих документов или их копий на»).\n\n"
-        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунков — это нормально, данные в ячейках сохранены."
+        "⚠️ Не забудьте указать на титульном листе количество листов подтверждающих документов "
+        "(ячейки выделены зелёным цветом в строке «с приложением подтверждающих документов или их копий на»).\n\n"
+        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — это нормально, данные в ячейках сохранены."
     )
     return base
 
