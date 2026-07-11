@@ -100,9 +100,11 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
     medical = [p for p in parsed_payments if p["category"] == "medical"]
     education = [p for p in parsed_payments if p["category"] == "education"]
+    property_payments = [p for p in parsed_payments if p["category"] == "property"]
 
     medical_total = sum(p["amount"] for p in medical)
     education_total = sum(p["amount"] for p in education)
+    property_total = sum(p["amount"] for p in property_payments)
 
     first_date = parsed_payments[0]["date"] if parsed_payments else ""
 
@@ -110,28 +112,30 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
         parsed_payments=parsed_payments,
         medical_total=medical_total,
         education_total=education_total,
+        property_total=property_total,
         first_payment_date=first_date,
         selected_deductions={},
     )
 
-    # Показываем результат парсинга
-    if medical_total > 0 or education_total > 0:
+    if medical_total > 0 or education_total > 0 or property_total > 0:
         response = "✅ Найдены подходящие платежи:\n\n"
         if medical_total > 0:
             response += f"🏥 Медицинские услуги: {len(medical)} платежа(ей) на сумму <b>{medical_total:,.2f} ₽</b>\n"
         if education_total > 0:
             response += f"🎓 Обучение: {len(education)} платежа(ей) на сумму <b>{education_total:,.2f} ₽</b>\n"
+        if property_total > 0:
+            response += f"🏠 Имущество: {len(property_payments)} платежа(ей) на сумму <b>{property_total:,.2f} ₽</b>\n"
         response += "\nХотите добавить другие вычеты (имущество, инвестиции)?\n"
         response += "Выберите нужные или нажмите «Готово»:"
     else:
         response = "ℹ️ В выписке не найдено платежей по медицине или обучению.\n\n"
         response += "Вы можете заявить вычеты, выбрав их ниже:"
 
-    await message.answer(response, reply_markup=_deduction_selection_kb(medical_total, education_total))
+    await message.answer(response, reply_markup=_deduction_selection_kb(medical_total, education_total, property_total))
     await state.set_state(UploadStates.waiting_for_deduction_selection)
 
 
-def _deduction_selection_kb(medical_total: float = 0, education_total: float = 0) -> InlineKeyboardMarkup:
+def _deduction_selection_kb(medical_total: float = 0, education_total: float = 0, property_total: float = 0) -> InlineKeyboardMarkup:
     buttons = []
     if medical_total > 0:
         buttons.append([InlineKeyboardButton(
@@ -147,7 +151,13 @@ def _deduction_selection_kb(medical_total: float = 0, education_total: float = 0
     else:
         buttons.append([InlineKeyboardButton(text="🎓 Обучение", callback_data="sel_education")])
 
-    buttons.append([InlineKeyboardButton(text="🏠 Имущественный вычет", callback_data="sel_property")])
+    if property_total > 0:
+        buttons.append([InlineKeyboardButton(
+            text=f"🏠 Имущественный вычет — {property_total:,.2f} ₽", callback_data="sel_property"
+        )])
+    else:
+        buttons.append([InlineKeyboardButton(text="🏠 Имущественный вычет", callback_data="sel_property")])
+
     buttons.append([InlineKeyboardButton(text="📈 Инвестиционный вычет", callback_data="sel_investment")])
     buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data="sel_done")])
 
@@ -168,13 +178,12 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
         await _process_selected_deductions(callback, state)
         return
 
-    # Переключаем выбор
     selected[key] = not selected.get(key, False)
     await state.update_data(selected_deductions=selected)
 
-    # Обновляем сообщение
     medical_total = data.get("medical_total", 0)
     education_total = data.get("education_total", 0)
+    property_total = data.get("property_total", 0)
 
     lines = ["<b>Выбранные вычеты:</b>\n"]
     if selected.get("medical"):
@@ -182,7 +191,7 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
     if selected.get("education"):
         lines.append(f"✅ 🎓 Обучение: {education_total:,.2f} ₽" if education_total > 0 else "✅ 🎓 Обучение (ввести сумму)")
     if selected.get("property"):
-        lines.append("✅ 🏠 Имущественный вычет")
+        lines.append(f"✅ 🏠 Имущество: {property_total:,.2f} ₽" if property_total > 0 else "✅ 🏠 Имущество (ввести сумму)")
     if selected.get("investment"):
         lines.append("✅ 📈 Инвестиционный вычет")
 
@@ -191,7 +200,7 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
 
     await callback.message.edit_text(
         "\n".join(lines),
-        reply_markup=_deduction_selection_kb(medical_total, education_total)
+        reply_markup=_deduction_selection_kb(medical_total, education_total, property_total)
     )
     await callback.answer()
 
@@ -210,7 +219,7 @@ async def _process_selected_deductions(callback: CallbackQuery, state: FSMContex
         await state.set_state(UploadStates.waiting_for_education_amount)
         return
 
-    if selected.get("property"):
+    if selected.get("property") and data.get("property_total", 0) == 0:
         await callback.message.answer(
             "🏠 Введите стоимость приобретённой недвижимости (в рублях):\n"
             "(максимальный вычет — 2 000 000 ₽)"
@@ -246,7 +255,7 @@ async def medical_amount(message: Message, state: FSMContext):
         await state.set_state(UploadStates.waiting_for_education_amount)
         return
 
-    if selected.get("property"):
+    if selected.get("property") and data.get("property_total", 0) == 0:
         await message.answer(
             "🏠 Введите стоимость приобретённой недвижимости (в рублях):\n"
             "(максимальный вычет — 2 000 000 ₽)"
@@ -277,7 +286,7 @@ async def education_amount(message: Message, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected_deductions", {})
 
-    if selected.get("property"):
+    if selected.get("property") and data.get("property_total", 0) == 0:
         await message.answer(
             "🏠 Введите стоимость приобретённой недвижимости (в рублях):\n"
             "(максимальный вычет — 2 000 000 ₽)"
@@ -363,7 +372,7 @@ async def _show_summary_and_confirm(message: Message, state: FSMContext):
         total_deduction += ded
 
     if selected.get("property"):
-        price = data.get("property_price", 0)
+        price = data.get("property_price", data.get("property_total", 0))
         mortgage = data.get("property_mortgage", 0)
         ded_price = min(price, 2_000_000)
         ded_mortgage = min(mortgage, 3_000_000)
@@ -796,7 +805,7 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         "year": year,
         "medical_total": data.get("medical_total", 0),
         "education_total": data.get("education_total", 0),
-        "property_price": data.get("property_price", 0),
+        "property_price": data.get("property_price", data.get("property_total", 0)),
         "property_mortgage": data.get("property_mortgage", 0),
         "property_address": data.get("property_address", ""),
         "investment_amount": data.get("investment_amount", 0),
@@ -927,4 +936,5 @@ async def download_file(callback: CallbackQuery, user: User = None):
         await callback.message.answer_document(FSInputFile(file_path))
     finally:
         session.close()
+
     await callback.answer()
