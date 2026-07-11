@@ -56,6 +56,9 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
         _fill_appendix5_investment(wb, data)
         _fill_calc_appendix5(wb, data)
 
+    # Открываем на титульном листе
+    wb.active = wb["Титульный лист"]
+
     wb.save(excel_path)
     return excel_path
 

@@ -112,7 +112,6 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
 
     first_date = parsed_payments[0]["date"] if parsed_payments else ""
 
-    # Автовыбор категорий с суммами из парсинга
     selected = {}
     if medical_total > 0:
         selected["medical"] = True
@@ -191,7 +190,6 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
         await _process_selected_deductions(callback, state)
         return
 
-    # Переключаем выбор
     selected[key] = not selected.get(key, False)
     await state.update_data(selected_deductions=selected)
 
@@ -199,7 +197,6 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
     education_total = data.get("education_total", 0)
     property_total = data.get("property_total", 0)
 
-    # Обновляем клавиатуру с галочками
     await callback.message.edit_reply_markup(
         reply_markup=_deduction_selection_kb(medical_total, education_total, property_total, selected)
     )
@@ -221,7 +218,6 @@ async def _process_selected_deductions(callback: CallbackQuery, state: FSMContex
         return
 
     if selected.get("property"):
-        # Определяем тип объекта
         desc = ""
         property_payments = data.get("parsed_payments", [])
         for p in property_payments:
@@ -244,11 +240,19 @@ async def _process_selected_deductions(callback: CallbackQuery, state: FSMContex
         await state.update_data(property_object_type=object_type)
 
         await callback.message.answer(
-            f"🏠 Определён тип объекта: <b>{_object_type_name(object_type)}</b>\n\n"
-            f"Если неверно, выберите из списка:\n"
+            f"🏠 Мы обнаружили в выписке покупку объекта недвижимости: <b>{_object_type_name(object_type)}</b>.\n\n"
+            f"Для заполнения декларации необходимо ответить на несколько вопросов.\n"
+            f"Пожалуйста, будьте внимательны при заполнении. Вам понадобятся:\n"
+            f"— данные по ипотеке (если есть)\n"
+            f"— кадастровый номер\n"
+            f"— адрес объекта\n"
+            f"— дата акта приёма-передачи\n"
+            f"— дата регистрации права собственности\n\n"
+            f"ℹ️ Ваши данные используются только для заполнения декларации и нигде не хранятся.\n\n"
+            f"<b>Вопрос 1.</b> Тип объекта. Если неверно, выберите из списка:\n"
             f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n"
             f"5 — Гараж/машино-место\n6 — Земельный участок (ИЖС)\n8 — Дача/садовый дом\n\n"
-            f"Введите номер или нажмите Enter чтобы продолжить:"
+            f"Введите номер:"
         )
         await state.set_state(UploadStates.waiting_for_property_object_type)
         return
@@ -301,7 +305,7 @@ async def property_object_type(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "prop_price_ok", UploadStates.waiting_for_property_price)
 async def prop_price_ok(callback: CallbackQuery, state: FSMContext):
-    await callback.message.edit_text("Есть ли ипотека? Введите сумму уплаченных процентов (или 0):")
+    await callback.message.edit_text("<b>Вопрос 2.</b> Есть ли ипотека? Введите сумму уплаченных процентов (или 0):")
     await state.set_state(UploadStates.waiting_for_property_mortgage)
     await callback.answer()
 
@@ -329,7 +333,6 @@ async def property_price(message: Message, state: FSMContext):
                 [InlineKeyboardButton(text="✏️ Изменить", callback_data="prop_price_edit")],
             ])
         )
-    # Если пустой ввод — ждём кнопку
 
 
 @router.message(UploadStates.waiting_for_medical_amount)
@@ -410,21 +413,21 @@ async def property_mortgage(message: Message, state: FSMContext):
         await message.answer("❌ Введите число или 0.")
         return
     await state.update_data(property_mortgage=amount)
-    await message.answer("Введите кадастровый номер объекта:")
+    await message.answer("<b>Вопрос 3.</b> Мы почти на середине. Введите кадастровый номер объекта:")
     await state.set_state(UploadStates.waiting_for_property_cadastral)
 
 
 @router.message(UploadStates.waiting_for_property_cadastral)
 async def property_cadastral(message: Message, state: FSMContext):
     await state.update_data(property_cadastral=message.text.strip())
-    await message.answer("Введите адрес объекта (одной строкой):")
+    await message.answer("<b>Вопрос 4.</b> Осталось ещё 3. Введите адрес объекта (одной строкой):")
     await state.set_state(UploadStates.waiting_for_property_address)
 
 
 @router.message(UploadStates.waiting_for_property_address)
 async def property_address(message: Message, state: FSMContext):
     await state.update_data(property_address=message.text.strip())
-    await message.answer("Введите дату акта приёма-передачи в формате ДД.ММ.ГГГГ:")
+    await message.answer("<b>Вопрос 5.</b> Осталось ещё 2. Введите дату акта приёма-передачи в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_property_act_date)
 
 
@@ -436,7 +439,7 @@ async def property_act_date(message: Message, state: FSMContext):
         await message.answer("❌ Неверный формат. Введите дату как ДД.ММ.ГГГГ:")
         return
     await state.update_data(property_act_date=text)
-    await message.answer("Введите дату регистрации права собственности в формате ДД.ММ.ГГГГ:")
+    await message.answer("<b>Вопрос 6.</b> Последний по недвижимости. Введите дату регистрации права собственности в формате ДД.ММ.ГГГГ:")
     await state.set_state(UploadStates.waiting_for_property_reg_date)
 
 
@@ -924,7 +927,9 @@ def _get_instruction(selected: dict) -> str:
         "5. <b>Подайте в налоговую</b> одним из способов:\n"
         "   — Лично в отделении ФНС (запись через nalog.ru)\n"
         "   — Почтой заказным письмом с описью вложения\n\n"
-        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунках — это нормально, данные в ячейках сохранены."
+        "⚠️ Не забудьте самостоятельно указать на титульном листе количество листов подтверждающих документов "
+        "в ячейках BQ44, BS44, BU44 (строка «страницах с приложением подтверждающих документов или их копий на»).\n\n"
+        "⚠️ При открытии файла Excel может показать предупреждения о повреждённых рисунков — это нормально, данные в ячейках сохранены."
     )
     return base
 

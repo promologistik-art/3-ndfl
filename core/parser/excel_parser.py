@@ -123,29 +123,33 @@ def _parse_date(text: str) -> str | None:
 def _parse_amount(text: str) -> float | None:
     if not text:
         return None
-    text = text.strip()
+    # Убираем все пробелы для парсинга
+    text = text.strip().replace(" ", "")
 
-    match = re.search(r"([+-]?)\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", text)
+    # Со знаком ₽
+    match = re.search(r"([+-]?)(\d{1,}(?:[.,]\d{2})?)\s*₽", text)
     if match:
         sign = match.group(1) or "+"
-        raw = match.group(2).replace(" ", "").replace(",", ".")
+        raw = match.group(2).replace(",", ".")
         try:
             amount = float(raw)
             return -amount if sign == "-" else amount
         except ValueError:
             pass
 
-    match = re.search(r"(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*-", text)
+    # Число с минусом в конце
+    match = re.search(r"(\d{1,}(?:[.,]\d{2})?)-", text)
     if match:
-        raw = match.group(1).replace(" ", "").replace(",", ".")
+        raw = match.group(1).replace(",", ".")
         try:
             return -float(raw)
         except ValueError:
             pass
 
-    match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)", text)
+    # Число со знаком
+    match = re.search(r"([+-])(\d{1,}(?:[.,]\d{2})?)", text)
     if match:
-        raw = match.group(2).replace(" ", "").replace(",", ".")
+        raw = match.group(2).replace(",", ".")
         try:
             amount = float(raw)
             return -amount if match.group(1) == "-" else amount
