@@ -1,6 +1,7 @@
 import re
 import os
 import openpyxl
+from datetime import datetime
 from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, DATA_TEMP_DIR
 
 
@@ -8,7 +9,6 @@ async def parse_excel(file_path: str) -> list[dict]:
     wb = openpyxl.load_workbook(file_path, data_only=True)
     ws = wb.active
 
-    # Отладка в файл
     debug_path = os.path.join(DATA_TEMP_DIR, "excel_debug.txt")
     debug_lines = []
 
@@ -27,26 +27,25 @@ async def parse_excel(file_path: str) -> list[dict]:
             continue
 
         cells = [str(c).strip() if c is not None else "" for c in row]
-        debug_lines.append(f"Строка: {' | '.join(cells[:4])}")
 
+        # Дата может быть в любой ячейке, в любом формате
         date = _extract_date(cells)
         if not date:
-            debug_lines.append("  -> дата не найдена")
             continue
 
+        # Сумма может быть в любой ячейке, со знаком или без, с разными разделителями
         amount = _extract_amount(cells)
         if amount is None:
-            debug_lines.append(f"  -> сумма не найдена, дата: {date}")
             continue
 
+        # Описание — самая длинная текстовая ячейка
         description = _extract_description(cells)
         if not description:
-            debug_lines.append(f"  -> описание не найдено, дата: {date}, сумма: {amount}")
             continue
 
         category = _detect_category(description)
 
-        debug_lines.append(f"  -> OK: {date} | {amount} | {description[:80]} | {category}")
+        debug_lines.append(f"OK: {date} | {amount:>12.2f} | {description[:100]} | {category}")
 
         payments.append({
             "date": date,
@@ -69,43 +68,94 @@ def _write_debug(path, lines):
 
 
 def _find_data_start(ws) -> int | None:
+    """Ищет строку с заголовком таблицы."""
+    for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+        row_text = " ".join(str(c).lower() for c in row if c)
+        if "дата" in row_text and ("операции" in row_text or "платежа" in row_text or "проводки" in row_text):
+            return row_idx + 1
+    # Если заголовок не найден, ищем первую строку с датой
     for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
         for cell in row:
-            if cell and "дата операции" in str(cell).lower():
-                return row_idx + 1
+            if cell and _parse_date(str(cell)):
+                return row_idx
+    return None
+
+
+def _parse_date(text: str) -> str | None:
+    """Парсит дату из строки в любом формате, возвращает ДД.ММ.ГГГГ."""
+    if not text:
+        return None
+
+    text = text.strip()
+
+    # ISO: 2025-03-18, 2025-03-18 14:24:00
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
+    if match:
+        return f"{match.group(3)}.{match.group(2)}.{match.group(1)}"
+
+    # Российский: 18.03.2025, 18.03.2025 14:24:00
+    match = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
+    if match:
+        return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
+
+    # Американский: 03/18/2025
+    match = re.search(r"(\d{2})/(\d{2})/(\d{4})", text)
+    if match:
+        return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
+
+    # С объектом datetime из Excel
     return None
 
 
 def _extract_date(cells: list[str]) -> str | None:
+    """Извлекает первую найденную дату из ячеек строки."""
     for c in cells:
-        match = re.search(r"(\d{2}\.\d{2}\.\d{4})", c)
-        if match:
-            return match.group(1)
+        date = _parse_date(c)
+        if date:
+            return date
     return None
 
 
 def _extract_amount(cells: list[str]) -> float | None:
+    """Извлекает сумму из ячеек строки."""
     for c in cells:
-        match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", c)
+        # С ₽: + 4 000.00 ₽, -15,000.00 ₽, 200.00 ₽
+        match = re.search(r"([+-]?)\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)\s*₽", c)
         if match:
-            sign = match.group(1)
+            sign = match.group(1) or "+"
             raw = match.group(2).replace(" ", "").replace(",", ".")
             try:
                 amount = float(raw)
                 return -amount if sign == "-" else amount
             except ValueError:
                 pass
+
+        # Без ₽: -15000, +200.00
+        match = re.search(r"([+-])\s*(\d{1,3}(?:\s?\d{3})*(?:[.,]\d{2})?)", c)
+        if match:
+            raw = match.group(2).replace(" ", "").replace(",", ".")
+            # Проверяем, что это именно сумма, а не номер документа
+            try:
+                amount = float(raw)
+                if amount > 0.01:  # фильтруем нулевые суммы и номера документов
+                    return -amount if match.group(1) == "-" else amount
+            except ValueError:
+                pass
+
     return None
 
 
 def _extract_description(cells: list[str]) -> str:
+    """Извлекает описание — самая длинная текстовая ячейка."""
     description = ""
     for c in cells:
-        if re.search(r"\d{2}\.\d{2}\.\d{4}", c):
+        # Пропускаем даты
+        if _parse_date(c):
             continue
+        # Пропускаем суммы
         if "₽" in c:
             continue
-        if re.match(r"^\d+$", c):
+        if re.match(r"^[+-]?\d+[.,]?\d*$", c.replace(" ", "")):
             continue
         if len(c) > len(description):
             description = c
