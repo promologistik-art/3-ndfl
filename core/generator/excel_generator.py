@@ -10,7 +10,6 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 TEMPLATE_PATH = os.path.join(_BASE_DIR, "..", "..", "templates", "ndfl_2025.xlsx")
 TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 
-# Базовые листы (всегда заполняются)
 BASE_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
 
 
@@ -21,7 +20,6 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
     selected = data.get("selected_deductions", {})
     print_sheets = list(BASE_SHEETS)
 
-    # Определяем какие листы заполнять
     if selected.get("education"):
         print_sheets.append("Прил.5")
     if selected.get("medical"):
@@ -32,7 +30,6 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
         print_sheets.append("Прил.5")
         print_sheets.append("Расчет к прил.5")
 
-    # Нумерация страниц
     page_number = 1
     for sheet_name in print_sheets:
         ws = wb[sheet_name]
@@ -40,12 +37,10 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
         _write_page_number(ws, str(page_number).zfill(3))
         page_number += 1
 
-    # Серый цвет для ненужных листов
     for sheet_name in wb.sheetnames:
         if sheet_name not in print_sheets:
             wb[sheet_name].sheet_properties.tabColor = "C0C0C0"
 
-    # Заполняем данные
     _fill_title(wb, data, len(print_sheets))
     _fill_section1(wb, data)
     _fill_return_request(wb, data)
@@ -299,7 +294,7 @@ def _fill_appendix5_education(wb, data):
     _safe_write(ws, "V47", today, font_size=8)
 
 
-# ==================== ПРИЛОЖЕНИЕ 5 (ПРОДОЛЖЕНИЕ — МЕДИЦИНА) ====================
+# ==================== ПРИЛОЖЕНИЕ 5 (МЕДИЦИНА) ====================
 
 def _fill_appendix5_medical(wb, data):
     ws = wb["Прил.5 (продолжение)"]
@@ -324,8 +319,6 @@ def _fill_appendix5_investment(wb, data):
     _safe_write(ws, "V47", today, font_size=8)
 
 
-# ==================== РАСЧЁТ К ПРИЛ.5 ====================
-
 def _fill_calc_appendix5(wb, data):
     ws = wb["Расчет к прил.5"]
     _write_fio_section_header(ws, data)
@@ -342,12 +335,77 @@ def _fill_appendix7(wb, data):
     ws = wb["Прил.7"]
     _write_fio_section_header(ws, data)
 
-    property_price = data.get("property_price", 0)
+    property_price = data.get("property_price", data.get("property_total", 0))
     property_mortgage = data.get("property_mortgage", 0)
+    property_object_type = data.get("property_object_type", "5")
+    property_cadastral = data.get("property_cadastral", "")
+    property_address = data.get("property_address", "")
+    property_act_date = data.get("property_act_date", "")
+    property_reg_date = data.get("property_reg_date", "")
+    income = data.get("income", 0)
+    total_deduction = data.get("total_deduction", 0)
 
-    _write_amount_with_kopeks(ws, property_price, 26, 9)
+    # 010 — код объекта: K10
+    _safe_write(ws, "K10", property_object_type)
+
+    # 020 — код признака налогоплательщика: Y10, Z10 = "01"
+    _safe_write(ws, "Y10", "0")
+    _safe_write(ws, "Z10", "1")
+
+    # 030 — способ приобретения: Y12 = "2"
+    _safe_write(ws, "Y12", "2")
+
+    # 032 — кадастровый номер: A14-AN14
+    if property_cadastral:
+        _write_number_field(ws, property_cadastral, 1, 14)
+
+    # 033 — адрес (разбиваем на строки по 60 символов)
+    if property_address:
+        lines = [property_address[i:i+60] for i in range(0, len(property_address), 60)]
+        for idx, line in enumerate(lines[:7]):
+            _safe_write(ws, f"A{16 + idx * 2}", line)
+
+    # 040 — дата акта: AD30, AE30 (день), AG30, AH30 (месяц), AJ30-AM30 (год)
+    if property_act_date and len(property_act_date) == 10:
+        _safe_write(ws, "AD30", property_act_date[0])
+        _safe_write(ws, "AE30", property_act_date[1])
+        _safe_write(ws, "AG30", property_act_date[3])
+        _safe_write(ws, "AH30", property_act_date[4])
+        _safe_write(ws, "AJ30", property_act_date[6])
+        _safe_write(ws, "AK30", property_act_date[7])
+        _safe_write(ws, "AL30", property_act_date[8])
+        _safe_write(ws, "AM30", property_act_date[9])
+
+    # 050 — дата регистрации: строка 32
+    if property_reg_date and len(property_reg_date) == 10:
+        _safe_write(ws, "AD32", property_reg_date[0])
+        _safe_write(ws, "AE32", property_reg_date[1])
+        _safe_write(ws, "AG32", property_reg_date[3])
+        _safe_write(ws, "AH32", property_reg_date[4])
+        _safe_write(ws, "AJ32", property_reg_date[6])
+        _safe_write(ws, "AK32", property_reg_date[7])
+        _safe_write(ws, "AL32", property_reg_date[8])
+        _safe_write(ws, "AM32", property_reg_date[9])
+
+    # 080 — расходы на покупку: AD34-AK34 + копейки AM34, AN34
+    ded_price = min(property_price, 2_000_000)
+    _write_amount_with_kopeks(ws, ded_price, 30, 34)
+
+    # 090 — проценты по ипотеке: строка 36
     if property_mortgage > 0:
-        _write_amount_with_kopeks(ws, property_mortgage, 26, 13)
+        ded_mortgage = min(property_mortgage, 3_000_000)
+        _write_amount_with_kopeks(ws, ded_mortgage, 30, 36)
+
+    # 140 — налоговая база: Z51-AK51 + копейки AM51, AN51
+    tax_base = max(0, income - total_deduction)
+    _write_amount_with_kopeks(ws, tax_base, 26, 51)
+
+    # 150 — вычет за период: строка 53
+    _write_amount_with_kopeks(ws, ded_price + ded_mortgage if property_mortgage > 0 else ded_price, 30, 53)
+
+    # 170 — остаток на следующий год: строка 57
+    remaining = max(0, property_price - ded_price)
+    _write_amount_with_kopeks(ws, remaining, 30, 57)
 
     today = datetime.now().strftime("%d.%m.%Y")
-    _safe_write(ws, "V47", today, font_size=8)
+    _safe_write(ws, "V63", today, font_size=8)
