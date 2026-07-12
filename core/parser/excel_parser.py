@@ -1,7 +1,7 @@
 import re
 import os
 import openpyxl
-from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, PROPERTY_KEYWORDS, DATA_TEMP_DIR
+from bot.config import MEDICAL_KEYWORDS, EDUCATION_KEYWORDS, PROPERTY_KEYWORDS, INVESTMENT_KEYWORDS, DATA_TEMP_DIR
 
 
 async def parse_excel(file_path: str) -> list[dict]:
@@ -74,88 +74,54 @@ def _find_headers(ws) -> tuple:
     amount_keywords = ["сумма", "amount", "рубл", "rub", "₽"]
 
     for row_idx, row in enumerate(ws.iter_rows(max_row=20, values_only=True), start=1):
-        if not row:
-            continue
+        if not row: continue
         cells = [str(c).lower().strip() if c is not None else "" for c in row]
-
-        col_date = None
-        col_desc = None
-        col_amount = None
-
+        col_date = col_desc = col_amount = None
         for i, cell in enumerate(cells):
             if col_date is None and any(kw in cell for kw in date_keywords):
-                col_date = i
-                continue
+                col_date = i; continue
             if col_desc is None and any(kw in cell for kw in desc_keywords):
-                col_desc = i
-                continue
+                col_desc = i; continue
             if "российские рубли" in cell or "рубл" in cell:
                 col_amount = i
             elif col_amount is None and any(kw in cell for kw in amount_keywords):
                 col_amount = i
-
         if col_date is not None and col_amount is not None:
             return row_idx, col_date, col_desc, col_amount
-
     return None, None, None, None
 
 
 def _parse_date(text: str) -> str | None:
-    if not text:
-        return None
+    if not text: return None
     text = text.strip()
-
     match = re.search(r"(\d{4})-(\d{2})-(\d{2})", text)
-    if match:
-        return f"{match.group(3)}.{match.group(2)}.{match.group(1)}"
-
+    if match: return f"{match.group(3)}.{match.group(2)}.{match.group(1)}"
     match = re.search(r"(\d{2})\.(\d{2})\.(\d{4})", text)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
-
+    if match: return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
     match = re.search(r"(\d{2})/(\d{2})/(\d{4})", text)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
-
+    if match: return f"{match.group(1)}.{match.group(2)}.{match.group(3)}"
     return None
 
 
 def _parse_amount(text: str) -> float | None:
-    if not text:
-        return None
-    # Убираем все пробелы для парсинга
+    if not text: return None
     text = text.strip().replace(" ", "")
-
-    # Со знаком ₽
     match = re.search(r"([+-]?)(\d{1,}(?:[.,]\d{2})?)\s*₽", text)
     if match:
         sign = match.group(1) or "+"
         raw = match.group(2).replace(",", ".")
-        try:
-            amount = float(raw)
-            return -amount if sign == "-" else amount
-        except ValueError:
-            pass
-
-    # Число с минусом в конце
+        try: return -float(raw) if sign == "-" else float(raw)
+        except: pass
     match = re.search(r"(\d{1,}(?:[.,]\d{2})?)-", text)
     if match:
         raw = match.group(1).replace(",", ".")
-        try:
-            return -float(raw)
-        except ValueError:
-            pass
-
-    # Число со знаком
+        try: return -float(raw)
+        except: pass
     match = re.search(r"([+-])(\d{1,}(?:[.,]\d{2})?)", text)
     if match:
         raw = match.group(2).replace(",", ".")
-        try:
-            amount = float(raw)
-            return -amount if match.group(1) == "-" else amount
-        except ValueError:
-            pass
-
+        try: return -float(raw) if match.group(1) == "-" else float(raw)
+        except: pass
     return None
 
 
@@ -163,37 +129,30 @@ def _detect_category(description: str) -> str | None:
     desc_lower = description.lower()
 
     for kw in MEDICAL_KEYWORDS:
-        if kw.lower() in desc_lower:
-            return "medical"
-
+        if kw.lower() in desc_lower: return "medical"
     for kw in EDUCATION_KEYWORDS:
-        if kw.lower() in desc_lower:
-            return "education"
-
+        if kw.lower() in desc_lower: return "education"
     for kw in PROPERTY_KEYWORDS:
-        if kw.lower() in desc_lower:
-            return "property"
+        if kw.lower() in desc_lower: return "property"
+    for kw in INVESTMENT_KEYWORDS:
+        if kw.lower() in desc_lower: return "investment"
 
     medical_patterns = [
-        r"гбуз", r"г\s*б\s*у\s*з", r"поликлин", r"госпитал",
-        r"диспансер", r"роддом", r"мед\s*центр", r"стоматолог", r"зубн",
-        r"тгкб", r"гкб", r"црб", r"ркб", r"клиник", r"больниц",
-        r"медицин", r"аптек", r"лечени", r"диагност", r"анализ",
-        r"хирург", r"терапевт", r"врач", r"медосмотр", r"санатор"
+        r"гбуз", r"г\s*б\s*у\s*з", r"поликлин", r"госпитал", r"диспансер",
+        r"роддом", r"мед\s*центр", r"стоматолог", r"зубн", r"тгкб", r"гкб",
+        r"црб", r"ркб", r"клиник", r"больниц", r"медицин", r"аптек", r"лечени",
+        r"диагност", r"анализ", r"хирург", r"терапевт", r"врач", r"медосмотр", r"санатор"
     ]
     for pattern in medical_patterns:
-        if re.search(pattern, desc_lower):
-            return "medical"
+        if re.search(pattern, desc_lower): return "medical"
 
     education_patterns = [
-        r"универ", r"институт", r"академи", r"колледж",
-        r"школ", r"гимназ", r"лицей", r"вуз", r"образован",
-        r"обучен", r"курс", r"тренинг", r"семинар", r"репетитор",
-        r"автошкол", r"музыкальн", r"спортивн", r"техникум", r"училищ"
+        r"универ", r"институт", r"академи", r"колледж", r"школ", r"гимназ",
+        r"лицей", r"вуз", r"образован", r"обучен", r"курс", r"тренинг",
+        r"семинар", r"репетитор", r"автошкол", r"музыкальн", r"спортивн", r"техникум", r"училищ"
     ]
     for pattern in education_patterns:
-        if re.search(pattern, desc_lower):
-            return "education"
+        if re.search(pattern, desc_lower): return "education"
 
     property_patterns = [
         r"купл", r"продаж", r"гараж", r"квартир", r"дом", r"недвижим",
@@ -201,7 +160,13 @@ def _detect_category(description: str) -> str | None:
         r"таунхаус", r"апартамент", r"жил", r"строй", r"новострой"
     ]
     for pattern in property_patterns:
-        if re.search(pattern, desc_lower):
-            return "property"
+        if re.search(pattern, desc_lower): return "property"
+
+    investment_patterns = [
+        r"иис", r"инвестиционный счет", r"инвестиционный счёт",
+        r"брокерский счет", r"брокерский счёт", r"инвест"
+    ]
+    for pattern in investment_patterns:
+        if re.search(pattern, desc_lower): return "investment"
 
     return None
