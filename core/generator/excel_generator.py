@@ -14,15 +14,7 @@ TEMPLATE_PATH = os.path.abspath(TEMPLATE_PATH)
 BASE_SHEETS = ["Титульный лист", "Раздел 1", "Прил-е к Разделу 1", "Раздел 2"]
 GREEN_FILL = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
 
-# Файлы рисунков, которые нужно сохранить
-DRAWING_FILES = ["xl/drawings/drawing1.xml", "xl/drawings/drawing2.xml",
-                 "xl/drawings/drawing3.xml", "xl/drawings/drawing4.xml",
-                 "xl/drawings/drawing5.xml", "xl/drawings/drawing6.xml",
-                 "xl/drawings/drawing7.xml", "xl/drawings/drawing8.xml",
-                 "xl/drawings/drawing9.xml", "xl/drawings/drawing10.xml",
-                 "xl/drawings/drawing11.xml", "xl/drawings/drawing12.xml",
-                 "xl/drawings/drawing13.xml", "xl/drawings/drawing14.xml",
-                 "xl/drawings/drawing15.xml", "xl/drawings/drawing16.xml"]
+DRAWING_FILES = [f"xl/drawings/drawing{i}.xml" for i in range(1, 17)]
 
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
@@ -38,7 +30,6 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
     file_name = f"3НДФЛ_{last_name}_{today}_{type_str}.xlsx"
     excel_path = os.path.join(DATA_TEMP_DIR, file_name)
 
-    # Заполняем через openpyxl
     wb = load_workbook(TEMPLATE_PATH)
 
     print_sheets = list(BASE_SHEETS)
@@ -75,20 +66,16 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
     wb.active = wb["Титульный лист"]
     wb.save(excel_path)
 
-    # Восстанавливаем рисунки из шаблона
     _restore_drawings(excel_path)
-
     return excel_path
 
 
 def _restore_drawings(filepath: str):
-    """Копирует рисунки из шаблона в сгенерированный файл."""
     with zipfile.ZipFile(TEMPLATE_PATH, "r") as z_template:
         with zipfile.ZipFile(filepath, "r") as z_generated:
             tmp_path = filepath + ".tmp"
             with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as z_out:
                 for item in z_generated.infolist():
-                    # Для рисунков — берём из шаблона
                     if item.filename in DRAWING_FILES:
                         try:
                             data = z_template.read(item.filename)
@@ -235,8 +222,6 @@ def _fill_section1(wb, data):
     _safe_write(ws, "V63", datetime.now().strftime("%d.%m.%Y"), font_size=8)
 
 
-# ==================== ПРИЛОЖЕНИЕ К РАЗДЕЛУ 1 ====================
-
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
     _write_fio_section_header(ws, data)
@@ -250,17 +235,14 @@ def _fill_return_request(wb, data):
     _safe_write(ws, "V50", datetime.now().strftime("%d.%m.%Y"), font_size=8)
 
 
-# ==================== РАЗДЕЛ 2 ====================
-
 def _fill_section2(wb, data):
     ws = wb["Раздел 2"]
     _write_fio_section_header(ws, data)
     _safe_write(ws, "Y9", "0"); _safe_write(ws, "Z9", "1")
     income = data.get("income", 0)
     _write_amount_with_kopeks(ws, income, 25, 11)
-    deduction = data.get("total_deduction", 0)
-    _write_amount_with_kopeks(ws, deduction, 25, 17)
-    tax_base = max(0, income - deduction)
+    _write_amount_with_kopeks(ws, data.get("total_deduction", 0), 25, 17)
+    tax_base = max(0, income - data.get("total_deduction", 0))
     _write_amount_with_kopeks(ws, tax_base, 25, 21)
     _write_number_field(ws, str(round(tax_base * 0.13)), 25, 24)
     _write_number_field(ws, str(round(data.get("tax_paid", 0))), 25, 26)
@@ -269,8 +251,6 @@ def _fill_section2(wb, data):
     if tax_return > 0: _write_number_field(ws, str(round(tax_return)), 25, 40)
     _safe_write(ws, "V59", datetime.now().strftime("%d.%m.%Y"), font_size=8)
 
-
-# ==================== ПРИЛОЖЕНИЕ 5 ====================
 
 def _fill_appendix5_education(wb, data):
     ws = wb["Прил.5"]
@@ -300,12 +280,37 @@ def _fill_appendix5_investment(wb, data):
 def _fill_calc_appendix5(wb, data):
     ws = wb["Расчет к прил.5"]
     _write_fio_section_header(ws, data)
-    _write_amount_with_kopeks(ws, data.get("investment_amount", 0), 26, 9)
-    _safe_write(ws, "D80", "1")
+
+    inv_amount = data.get("investment_amount", 0)
+    broker_inn = str(data.get("investment_broker_inn", ""))
+    broker_name = str(data.get("investment_broker_name", ""))
+    contract = str(data.get("investment_contract", ""))
+    open_date = str(data.get("investment_open_date", ""))
+
+    # ИНН брокера (строка 090)
+    if len(broker_inn) >= 10:
+        _write_number_field(ws, broker_inn, 1, 9)
+
+    # Название брокера (строка 110)
+    if broker_name:
+        _safe_write(ws, "A11", broker_name)
+
+    # Дата договора (строка 120)
+    if open_date and len(open_date) == 10:
+        _safe_write(ws, "A12", open_date)
+
+    # Номер договора (строка 130)
+    if contract:
+        _safe_write(ws, "A13", contract)
+
+    # Сумма взноса (строка 150)
+    _write_amount_with_kopeks(ws, inv_amount, 26, 15)
+
+    # Признак основания (строка 080) — 1 (статья 219.1)
+    _safe_write(ws, "D8", "1")
+
     _safe_write(ws, "V47", datetime.now().strftime("%d.%m.%Y"), font_size=8)
 
-
-# ==================== ПРИЛОЖЕНИЕ 7 ====================
 
 def _fill_appendix7(wb, data):
     ws = wb["Прил.7"]
@@ -344,8 +349,7 @@ def _fill_appendix7(wb, data):
     ded_price = min(pp, 2_000_000)
     _write_amount_with_kopeks(ws, ded_price, 30, 34)
     if pm > 0:
-        ded_mortgage = min(pm, 3_000_000)
-        _write_amount_with_kopeks(ws, ded_mortgage, 30, 36)
+        _write_amount_with_kopeks(ws, min(pm, 3_000_000), 30, 36)
     _write_amount_with_kopeks(ws, max(0, income - td), 26, 51)
     _write_amount_with_kopeks(ws, ded_price, 30, 53)
     _write_amount_with_kopeks(ws, max(0, pp - ded_price), 30, 57)
