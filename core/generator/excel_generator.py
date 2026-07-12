@@ -16,7 +16,25 @@ GREEN_FILL = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="so
 
 
 async def generate_excel(declaration_id: int, data: dict) -> str:
-    excel_path = os.path.join(DATA_TEMP_DIR, f"declaration_{declaration_id}.xlsx")
+    # Формируем имя файла
+    last_name = data.get("last_name", "Декларация")
+    selected = data.get("selected_deductions", {})
+    today = datetime.now().strftime("%d%m%y")
+
+    types = []
+    if selected.get("medical"):
+        types.append("мед")
+    if selected.get("education"):
+        types.append("обуч")
+    if selected.get("property"):
+        types.append("имущ")
+    if selected.get("investment"):
+        types.append("инв")
+    type_str = "-".join(types) if types else "вычет"
+
+    file_name = f"3НДФЛ_{last_name}_{today}_{type_str}.xlsx"
+    excel_path = os.path.join(DATA_TEMP_DIR, file_name)
+
     wb = load_workbook(TEMPLATE_PATH)
 
     selected = data.get("selected_deductions", {})
@@ -191,7 +209,6 @@ def _fill_title(wb, data, total_pages):
     _safe_write(ws, "U44", pages_str[1])
     _safe_write(ws, "W44", pages_str[2])
 
-    # Подсвечиваем зелёным ячейки для количества листов подтверждающих документов
     _safe_write(ws, "BQ44", "?")
     _safe_write(ws, "BS44", "?")
     _safe_write(ws, "BU44", "?")
@@ -231,15 +248,12 @@ def _fill_section1(wb, data):
     _write_fio_section_header(ws, data)
     kbk = "18210102010011000110"
     _write_number_field(ws, kbk, 21, 12)
-
     tax_to_pay = data.get("tax_to_pay", 0)
     tax_return = data.get("tax_return", 0)
-
     if tax_to_pay > 0:
         _write_number_field(ws, str(round(tax_to_pay)), 21, 16)
     elif tax_return > 0:
         _write_number_field(ws, str(round(tax_return)), 21, 18)
-
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V63", today, font_size=8)
 
@@ -249,10 +263,8 @@ def _fill_section1(wb, data):
 def _fill_return_request(wb, data):
     ws = wb["Прил-е к Разделу 1"]
     _write_fio_section_header(ws, data)
-
     tax_return = data.get("tax_return", 0)
     _write_number_field(ws, str(round(tax_return)), 13, 11)
-
     bik = str(data.get("bik", ""))
     if len(bik) == 9:
         _write_number_field(ws, bik, 21, 15)
@@ -283,15 +295,12 @@ def _fill_section2(wb, data):
     _write_number_field(ws, str(tax_calculated), 25, 24)
     tax_paid = data.get("tax_paid", 0)
     _write_number_field(ws, str(round(tax_paid)), 25, 26)
-
     tax_to_pay = data.get("tax_to_pay", 0)
     tax_return = data.get("tax_return", 0)
-
     if tax_to_pay > 0:
         _write_number_field(ws, str(round(tax_to_pay)), 25, 38)
     if tax_return > 0:
         _write_number_field(ws, str(round(tax_return)), 25, 40)
-
     today = datetime.now().strftime("%d.%m.%Y")
     _safe_write(ws, "V59", today, font_size=8)
 

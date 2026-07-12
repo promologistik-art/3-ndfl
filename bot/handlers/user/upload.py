@@ -847,22 +847,31 @@ async def _save_profile_and_calculate(message: Message, state: FSMContext, user:
     data = await state.get_data()
     session = next(get_session())
     try:
-        profile_name = f"{data.get('last_name', '')} {data.get('first_name', '')[0]}.{data.get('middle_name', '')[0]}."
-        profile = Profile(
-            user_id=message.from_user.id, name=profile_name,
-            inn=data.get("taxpayer_inn", ""), last_name=data.get("last_name", ""),
-            first_name=data.get("first_name", ""), middle_name=data.get("middle_name", ""),
-            birth_date=data.get("birth_date", ""), passport=data.get("passport", ""),
-            tax_office=data.get("tax_office", ""), phone=data.get("taxpayer_phone", ""),
-            bik=data.get("bik", ""), account=data.get("account", ""), card=data.get("card", ""),
-        )
-        session.add(profile)
-        session.commit()
+        # Проверяем, есть ли уже профиль с таким ИНН и фамилией
+        existing = session.execute(
+            select(Profile).where(
+                Profile.user_id == message.from_user.id,
+                Profile.inn == data.get("taxpayer_inn", ""),
+                Profile.last_name == data.get("last_name", "")
+            )
+        ).scalar_one_or_none()
+
+        if not existing:
+            profile_name = f"{data.get('last_name', '')} {data.get('first_name', '')[0]}.{data.get('middle_name', '')[0]}."
+            profile = Profile(
+                user_id=message.from_user.id, name=profile_name,
+                inn=data.get("taxpayer_inn", ""), last_name=data.get("last_name", ""),
+                first_name=data.get("first_name", ""), middle_name=data.get("middle_name", ""),
+                birth_date=data.get("birth_date", ""), passport=data.get("passport", ""),
+                tax_office=data.get("tax_office", ""), phone=data.get("taxpayer_phone", ""),
+                bik=data.get("bik", ""), account=data.get("account", ""), card=data.get("card", ""),
+            )
+            session.add(profile)
+            session.commit()
     finally:
         session.close()
 
     await _do_calculation(message, state, user)
-
 
 async def _do_calculation(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
