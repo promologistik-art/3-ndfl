@@ -151,6 +151,7 @@ def _access_text(access_type: str) -> str:
         case "demo": return "Демо"
         case "monthly": return "Месячный"
         case "unlimited": return "Безлимит"
+        case "test_14": return "Тестовый (14 дн.)"
         case _: return "Неизвестно"
 
 
@@ -161,4 +162,6 @@ def _remaining_text(user: User) -> str:
         return f"{max(0, 1 - user.declarations_used)} из 1"
     if user.access_type == "monthly":
         return f"{max(0, 1 - user.declarations_used)} из 1"
+    if user.access_type == "test_14":
+        return f"{max(0, 10 - user.declarations_used)} из 10"
     return "0"

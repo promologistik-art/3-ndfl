@@ -6,7 +6,7 @@ from aiogram.types import Message, CallbackQuery, FSInputFile, InlineKeyboardMar
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.models import User, Declaration, Profile, get_session
-from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ADMIN_IDS
+from bot.config import DATA_TEMP_DIR, DEMO_LIMIT, MONTHLY_LIMIT, TEST14_LIMIT, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ACCESS_TEST_14, ADMIN_IDS
 from bot.keyboards.user import deduction_type_kb, confirm_data_kb, download_kb
 from core.parser.pdf_parser import parse_pdf
 from core.parser.excel_parser import parse_excel
@@ -60,6 +60,10 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
     if user.access_type == ACCESS_MONTHLY and user.declarations_used >= MONTHLY_LIMIT:
         await callback.answer("Лимит на этот месяц исчерпан", show_alert=True)
         return
+    if user.access_type == ACCESS_TEST_14 and user.declarations_used >= TEST14_LIMIT:
+        await callback.answer("Лимит тестового доступа исчерпан (10 деклараций)", show_alert=True)
+        return
+
     await callback.message.edit_text(
         "Выберите способ заполнения декларации:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[

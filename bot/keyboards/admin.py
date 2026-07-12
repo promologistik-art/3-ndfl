@@ -17,6 +17,7 @@ def admin_grant_type_kb(user_id: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🆓 Демо", callback_data=f"grant_demo_{user_id}")],
             [InlineKeyboardButton(text="📅 Месяц (100₽)", callback_data=f"grant_monthly_{user_id}")],
+            [InlineKeyboardButton(text="🔬 Тест 14 дней (10 декл.)", callback_data=f"grant_test14_{user_id}")],
             [InlineKeyboardButton(text="♾️ Безлимит (500₽)", callback_data=f"grant_unlimited_{user_id}")],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="admin_back")],
         ]

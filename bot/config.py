@@ -12,9 +12,11 @@ DATA_TEMP_DIR = "data/temp"
 ACCESS_DEMO = "demo"
 ACCESS_MONTHLY = "monthly"
 ACCESS_UNLIMITED = "unlimited"
+ACCESS_TEST_14 = "test_14"
 
 DEMO_LIMIT = 1
 MONTHLY_LIMIT = 1
+TEST14_LIMIT = 10
 
 MEDICAL_KEYWORDS = [
     "больниц", "клиник", "поликлиник", "госпитал", "диспансер",

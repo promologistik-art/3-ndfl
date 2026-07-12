@@ -4,7 +4,7 @@ from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from core.models import User, Payment, AdminLog, get_session
-from bot.config import ADMIN_IDS, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED
+from bot.config import ADMIN_IDS, ACCESS_DEMO, ACCESS_MONTHLY, ACCESS_UNLIMITED, ACCESS_TEST_14
 from bot.keyboards.admin import admin_grant_type_kb, admin_back_kb
 from sqlalchemy import select
 
@@ -37,7 +37,6 @@ async def process_username(message: Message, state: FSMContext):
         return
 
     raw = message.text.strip()
-    # Убираем @ если есть
     username = raw.lstrip("@")
 
     if not username:
@@ -64,7 +63,8 @@ async def process_username(message: Message, state: FSMContext):
         access_text_map = {
             "demo": "🆓 Демо",
             "monthly": "📅 Месячный",
-            "unlimited": "♾️ Безлимит"
+            "unlimited": "♾️ Безлимит",
+            "test_14": "🔬 Тестовый (14 дней)",
         }
         current_access = access_text_map.get(user.access_type, "Неизвестно")
 
@@ -122,6 +122,11 @@ async def grant_access(callback: CallbackQuery):
             user.access_type = ACCESS_DEMO
             user.access_expires = None
             user.declarations_used = 0
+        elif access_type == ACCESS_TEST_14:
+            amount = 0
+            user.access_type = ACCESS_TEST_14
+            user.access_expires = datetime.now(timezone.utc) + timedelta(days=14)
+            user.declarations_used = 0
 
         session.commit()
 
@@ -145,7 +150,8 @@ async def grant_access(callback: CallbackQuery):
         access_names = {
             "demo": "🆓 Демо",
             "monthly": "📅 Месячный (100₽)",
-            "unlimited": "♾️ Безлимит (500₽)"
+            "unlimited": "♾️ Безлимит (500₽)",
+            "test_14": "🔬 Тестовый (14 дней, 10 деклараций)",
         }
 
         await callback.message.edit_text(

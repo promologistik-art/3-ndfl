@@ -3,7 +3,7 @@ from typing import Any, Awaitable, Callable
 from aiogram import BaseMiddleware
 from aiogram.types import Message, CallbackQuery
 from sqlalchemy import select
-from bot.config import ADMIN_IDS, ACCESS_DEMO, ACCESS_UNLIMITED, ACCESS_MONTHLY
+from bot.config import ADMIN_IDS, ACCESS_DEMO, ACCESS_UNLIMITED, ACCESS_MONTHLY, ACCESS_TEST_14
 from core.models import get_session, User
 
 
@@ -43,7 +43,16 @@ class AccessMiddleware(BaseMiddleware):
                 user.access_type = ACCESS_UNLIMITED
                 session.commit()
 
+            # Проверка истечения monthly
             if user.access_type == ACCESS_MONTHLY and user.access_expires:
+                now = datetime.now(timezone.utc)
+                if user.access_expires.replace(tzinfo=timezone.utc) < now:
+                    user.access_type = ACCESS_DEMO
+                    user.declarations_used = 0
+                    session.commit()
+
+            # Проверка истечения test_14
+            if user.access_type == ACCESS_TEST_14 and user.access_expires:
                 now = datetime.now(timezone.utc)
                 if user.access_expires.replace(tzinfo=timezone.utc) < now:
                     user.access_type = ACCESS_DEMO
