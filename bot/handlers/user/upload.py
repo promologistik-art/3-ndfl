@@ -847,14 +847,13 @@ async def _save_profile_and_calculate(message: Message, state: FSMContext, user:
     data = await state.get_data()
     session = next(get_session())
     try:
-        # Проверяем, есть ли уже профиль с таким ИНН и фамилией
         existing = session.execute(
             select(Profile).where(
                 Profile.user_id == message.from_user.id,
                 Profile.inn == data.get("taxpayer_inn", ""),
                 Profile.last_name == data.get("last_name", "")
             )
-        ).scalar_one_or_none()
+        ).first()
 
         if not existing:
             profile_name = f"{data.get('last_name', '')} {data.get('first_name', '')[0]}.{data.get('middle_name', '')[0]}."
@@ -873,6 +872,7 @@ async def _save_profile_and_calculate(message: Message, state: FSMContext, user:
 
     await _do_calculation(message, state, user)
 
+    
 async def _do_calculation(message: Message, state: FSMContext, user: User):
     data = await state.get_data()
     total_deduction = data.get("total_deduction", 0)
