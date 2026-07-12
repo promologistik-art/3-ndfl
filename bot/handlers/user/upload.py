@@ -54,14 +54,12 @@ async def start_upload(callback: CallbackQuery, state: FSMContext, user: User = 
     if not user:
         await callback.answer("Ошибка")
         return
-
     if user.access_type == ACCESS_DEMO and user.declarations_used >= DEMO_LIMIT:
         await callback.answer("Лимит демо-доступа исчерпан (1 декларация)", show_alert=True)
         return
     if user.access_type == ACCESS_MONTHLY and user.declarations_used >= MONTHLY_LIMIT:
         await callback.answer("Лимит на этот месяц исчерпан", show_alert=True)
         return
-
     await callback.message.edit_text(
         "Выберите способ заполнения декларации:",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -87,11 +85,11 @@ async def choice_file(callback: CallbackQuery, state: FSMContext):
 async def choice_manual(callback: CallbackQuery, state: FSMContext):
     await state.update_data(
         parsed_payments=[], medical_total=0, education_total=0, property_total=0,
-        first_payment_date="", selected_deductions={},
+        investment_total=0, first_payment_date="", selected_deductions={},
     )
     await callback.message.edit_text(
         "Выберите вычеты, которые хотите заявить:",
-        reply_markup=_deduction_selection_kb(0, 0, 0, {})
+        reply_markup=_deduction_selection_kb(0, 0, 0, 0, {})
     )
     await state.set_state(UploadStates.waiting_for_deduction_selection)
     await callback.answer()
@@ -131,23 +129,28 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
     medical = [p for p in parsed_payments if p["category"] == "medical"]
     education = [p for p in parsed_payments if p["category"] == "education"]
     property_payments = [p for p in parsed_payments if p["category"] == "property"]
+    investment_payments = [p for p in parsed_payments if p["category"] == "investment"]
+
     medical_total = sum(p["amount"] for p in medical)
     education_total = sum(p["amount"] for p in education)
     property_total = sum(p["amount"] for p in property_payments)
+    investment_total = sum(p["amount"] for p in investment_payments)
     first_date = parsed_payments[0]["date"] if parsed_payments else ""
 
     selected = {}
     if medical_total > 0: selected["medical"] = True
     if education_total > 0: selected["education"] = True
     if property_total > 0: selected["property"] = True
+    if investment_total > 0: selected["investment"] = True
 
     await state.update_data(
         parsed_payments=parsed_payments, medical_total=medical_total,
         education_total=education_total, property_total=property_total,
-        first_payment_date=first_date, selected_deductions=selected,
+        investment_total=investment_total, first_payment_date=first_date,
+        selected_deductions=selected,
     )
 
-    if medical_total > 0 or education_total > 0 or property_total > 0:
+    if medical_total > 0 or education_total > 0 or property_total > 0 or investment_total > 0:
         response = "✅ Найдены подходящие платежи:\n\n"
         if medical_total > 0:
             response += f"🏥 Медицинские услуги: {len(medical)} платежа(ей) на сумму <b>{medical_total:,.2f} ₽</b>\n"
@@ -155,15 +158,17 @@ async def handle_file(message: Message, state: FSMContext, user: User = None):
             response += f"🎓 Обучение: {len(education)} платежа(ей) на сумму <b>{education_total:,.2f} ₽</b>\n"
         if property_total > 0:
             response += f"🏠 Имущество: {len(property_payments)} платежа(ей) на сумму <b>{property_total:,.2f} ₽</b>\n"
+        if investment_total > 0:
+            response += f"📈 Инвестиции (ИИС): {len(investment_payments)} платежа(ей) на сумму <b>{investment_total:,.2f} ₽</b>\n"
         response += "\nВыберите нужные вычеты или нажмите «Готово»:"
     else:
         response = "ℹ️ В выписке не найдено платежей.\n\nВы можете заявить вычеты, выбрав их ниже:"
 
-    await message.answer(response, reply_markup=_deduction_selection_kb(medical_total, education_total, property_total, selected))
+    await message.answer(response, reply_markup=_deduction_selection_kb(medical_total, education_total, property_total, investment_total, selected))
     await state.set_state(UploadStates.waiting_for_deduction_selection)
 
 
-def _deduction_selection_kb(medical_total=0, education_total=0, property_total=0, selected=None):
+def _deduction_selection_kb(medical_total=0, education_total=0, property_total=0, investment_total=0, selected=None):
     if selected is None: selected = {}
     buttons = []
     med_text = f"🏥 Медицина — {medical_total:,.2f} ₽" if medical_total > 0 else "🏥 Медицинские услуги"
@@ -175,7 +180,7 @@ def _deduction_selection_kb(medical_total=0, education_total=0, property_total=0
     prop_text = f"🏠 Имущество — {property_total:,.2f} ₽" if property_total > 0 else "🏠 Имущественный вычет"
     if selected.get("property"): prop_text = "✅ " + prop_text
     buttons.append([InlineKeyboardButton(text=prop_text, callback_data="sel_property")])
-    inv_text = "📈 Инвестиционный вычет"
+    inv_text = f"📈 ИИС — {investment_total:,.2f} ₽" if investment_total > 0 else "📈 Инвестиционный вычет"
     if selected.get("investment"): inv_text = "✅ " + inv_text
     buttons.append([InlineKeyboardButton(text=inv_text, callback_data="sel_investment")])
     buttons.append([InlineKeyboardButton(text="✅ Готово", callback_data="sel_done")])
@@ -187,21 +192,20 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
     key = callback.data.replace("sel_", "")
     data = await state.get_data()
     selected = data.get("selected_deductions", {})
-
     if key == "done":
         if not selected:
             await callback.answer("Выберите хотя бы один вычет", show_alert=True)
             return
         await _process_selected_deductions(callback, state)
         return
-
     selected[key] = not selected.get(key, False)
     await state.update_data(selected_deductions=selected)
     medical_total = data.get("medical_total", 0)
     education_total = data.get("education_total", 0)
     property_total = data.get("property_total", 0)
+    investment_total = data.get("investment_total", 0)
     await callback.message.edit_reply_markup(
-        reply_markup=_deduction_selection_kb(medical_total, education_total, property_total, selected)
+        reply_markup=_deduction_selection_kb(medical_total, education_total, property_total, investment_total, selected)
     )
     await callback.answer()
 
@@ -209,54 +213,19 @@ async def deduction_selection(callback: CallbackQuery, state: FSMContext):
 async def _process_selected_deductions(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     selected = data.get("selected_deductions", {})
-
     if selected.get("medical") and data.get("medical_total", 0) == 0:
         await callback.message.answer("Введите сумму расходов на медицинские услуги (в рублях):")
         await state.set_state(UploadStates.waiting_for_medical_amount)
         return
-
     if selected.get("education") and data.get("education_total", 0) == 0:
         await callback.message.answer("Введите сумму расходов на обучение (в рублях):")
         await state.set_state(UploadStates.waiting_for_education_amount)
         return
-
     if selected.get("property"):
-        property_payments = data.get("parsed_payments", [])
-        desc = ""
-        for p in property_payments:
-            if p.get("category") == "property":
-                desc = p.get("description", "").lower()
-                break
-        object_type = "5"
-        if "квартир" in desc: object_type = "2"
-        elif "дом" in desc or "жил" in desc: object_type = "1"
-        elif "гараж" in desc or "машино" in desc: object_type = "5"
-        elif "земел" in desc or "участк" in desc: object_type = "6"
-        elif "дач" in desc or "садов" in desc: object_type = "8"
-        await state.update_data(property_object_type=object_type)
-
-        if desc:
-            await callback.message.answer(
-                f"🏠 Мы обнаружили покупку: <b>{_object_type_name(object_type)}</b>.\n\n"
-                f"Для заполнения понадобятся:\n— данные по ипотеке\n— кадастровый номер\n"
-                f"— адрес\n— дата акта приёма-передачи\n— дата регистрации права\n\n"
-                f"ℹ️ Данные используются только для декларации и нигде не хранятся.\n\n"
-                f"<b>Вопрос 1.</b> Тип объекта. Если неверно, выберите:\n"
-                f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n5 — Гараж\n6 — Земельный участок\n8 — Дача\n\nВведите номер:"
-            )
-        else:
-            await callback.message.answer(
-                f"🏠 Для заполнения понадобятся:\n— данные по ипотеке\n— кадастровый номер\n"
-                f"— адрес\n— дата акта приёма-передачи\n— дата регистрации права\n\n"
-                f"ℹ️ Данные используются только для декларации.\n\n"
-                f"<b>Вопрос 1.</b> Выберите тип объекта:\n"
-                f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n5 — Гараж\n6 — Земельный участок\n8 — Дача\n\nВведите номер:"
-            )
-        await state.set_state(UploadStates.waiting_for_property_object_type)
+        await _start_property_flow(callback.message, state)
         return
-
     if selected.get("investment"):
-        inv_amount = data.get("investment_amount", 0)
+        inv_amount = data.get("investment_total", 0)
         if inv_amount == 0:
             await callback.message.answer(
                 "📈 Введите сумму, внесённую на ИИС в отчётном году (в рублях):\n(максимальный вычет — 400 000 ₽)"
@@ -270,7 +239,6 @@ async def _process_selected_deductions(callback: CallbackQuery, state: FSMContex
             )
             await state.set_state(UploadStates.waiting_for_investment_broker_inn)
         return
-
     await _show_summary_and_confirm(callback.message, state)
 
 
@@ -281,6 +249,40 @@ def _object_type_name(code: str) -> str:
 
 # ==================== PROPERTY ====================
 
+async def _start_property_flow(message: Message, state: FSMContext):
+    data = await state.get_data()
+    property_payments = data.get("parsed_payments", [])
+    desc = ""
+    for p in property_payments:
+        if p.get("category") == "property": desc = p.get("description", "").lower(); break
+    object_type = "5"
+    if "квартир" in desc: object_type = "2"
+    elif "дом" in desc or "жил" in desc: object_type = "1"
+    elif "гараж" in desc or "машино" in desc: object_type = "5"
+    elif "земел" in desc or "участк" in desc: object_type = "6"
+    elif "дач" in desc or "садов" in desc: object_type = "8"
+    await state.update_data(property_object_type=object_type)
+
+    if desc:
+        await message.answer(
+            f"🏠 Мы обнаружили покупку: <b>{_object_type_name(object_type)}</b>.\n\n"
+            f"Для заполнения понадобятся:\n— данные по ипотеке\n— кадастровый номер\n"
+            f"— адрес\n— дата акта приёма-передачи\n— дата регистрации права\n\n"
+            f"ℹ️ Данные используются только для декларации и нигде не хранятся.\n\n"
+            f"<b>Вопрос 1.</b> Тип объекта. Если неверно, выберите:\n"
+            f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n5 — Гараж\n6 — Земельный участок\n8 — Дача\n\nВведите номер:"
+        )
+    else:
+        await message.answer(
+            f"🏠 Для заполнения понадобятся:\n— данные по ипотеке\n— кадастровый номер\n"
+            f"— адрес\n— дата акта приёма-передачи\n— дата регистрации права\n\n"
+            f"ℹ️ Данные используются только для декларации.\n\n"
+            f"<b>Вопрос 1.</b> Выберите тип объекта:\n"
+            f"1 — Жилой дом\n2 — Квартира\n3 — Комната\n5 — Гараж\n6 — Земельный участок\n8 — Дача\n\nВведите номер:"
+        )
+    await state.set_state(UploadStates.waiting_for_property_object_type)
+
+
 @router.message(UploadStates.waiting_for_property_object_type)
 async def property_object_type(message: Message, state: FSMContext):
     text = message.text.strip()
@@ -288,8 +290,7 @@ async def property_object_type(message: Message, state: FSMContext):
     if text and text not in valid:
         await message.answer("❌ Введите номер из списка (1, 2, 3, 5, 6, 8):")
         return
-    if text:
-        await state.update_data(property_object_type=text)
+    if text: await state.update_data(property_object_type=text)
     data = await state.get_data()
     pt = data.get("property_total", 0)
     if pt > 0:
@@ -439,23 +440,6 @@ async def education_amount(message: Message, state: FSMContext):
     await _show_summary_and_confirm(message, state)
 
 
-async def _start_property_flow(message: Message, state: FSMContext):
-    data = await state.get_data()
-    pt = data.get("property_total", 0)
-    if pt > 0:
-        await state.update_data(property_price=pt)
-        await message.answer(
-            f"💰 Стоимость из выписки: <b>{pt:,.2f} ₽</b>\n\nВсё верно?",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Верно", callback_data="prop_price_ok")],
-                [InlineKeyboardButton(text="✏️ Изменить", callback_data="prop_price_edit")],
-            ])
-        )
-    else:
-        await message.answer("Введите стоимость недвижимости (в рублях):\n(макс — 2 000 000 ₽)")
-    await state.set_state(UploadStates.waiting_for_property_price)
-
-
 # ==================== INVESTMENT ====================
 
 @router.message(UploadStates.waiting_for_investment_amount)
@@ -534,12 +518,11 @@ async def _show_summary_and_confirm(message: Message, state: FSMContext):
             lines.append(f"   Ипотечные %: {mortgage:,.2f} ₽ → вычет {ded_mortgage:,.2f} ₽")
         total_deduction += ded_price + ded_mortgage
     if selected.get("investment"):
-        amount = data.get("investment_amount", 0)
+        amount = data.get("investment_amount", data.get("investment_total", 0))
         ded = min(amount, 400_000)
         broker = data.get("investment_broker_name", "")
         lines.append(f"📈 ИИС: {amount:,.2f} ₽ → вычет {ded:,.2f} ₽")
-        if broker:
-            lines.append(f"   Брокер: {broker}")
+        if broker: lines.append(f"   Брокер: {broker}")
         total_deduction += ded
 
     tax_return_preview = round(total_deduction * 0.13, 2)
@@ -869,7 +852,7 @@ async def _do_calculation(message: Message, state: FSMContext, user: User):
         "property_address": data.get("property_address", ""),
         "property_act_date": data.get("property_act_date", ""),
         "property_reg_date": data.get("property_reg_date", ""),
-        "investment_amount": data.get("investment_amount", 0),
+        "investment_amount": data.get("investment_amount", data.get("investment_total", 0)),
         "investment_broker_inn": data.get("investment_broker_inn", ""),
         "investment_broker_name": data.get("investment_broker_name", ""),
         "investment_contract": data.get("investment_contract", ""),
