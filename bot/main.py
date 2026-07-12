@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import shutil
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -21,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 async def set_commands(bot: Bot):
-    # Общие команды для всех
     commands = [
         BotCommand(command="start", description="🔄 Перезапуск бота"),
         BotCommand(command="help", description="❓ Помощь и инструкция"),
@@ -29,7 +29,6 @@ async def set_commands(bot: Bot):
     ]
     await bot.set_my_commands(commands)
 
-    # Добавляем /admin только для админов
     for admin_id in ADMIN_IDS:
         admin_commands = commands + [
             BotCommand(command="admin", description="🔐 Админ-панель"),
@@ -39,6 +38,16 @@ async def set_commands(bot: Bot):
 
 async def main():
     os.makedirs(DATA_TEMP_DIR, exist_ok=True)
+
+    # Очищаем временные файлы при старте
+    for filename in os.listdir(DATA_TEMP_DIR):
+        file_path = os.path.join(DATA_TEMP_DIR, filename)
+        try:
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
+        except Exception:
+            pass
+
     init_db()
     logger.info("База данных инициализирована")
 
