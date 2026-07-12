@@ -65,7 +65,6 @@ async def generate_excel(declaration_id: int, data: dict) -> str:
 
     wb.active = wb["Титульный лист"]
     wb.save(excel_path)
-
     _restore_drawings(excel_path)
     return excel_path
 
@@ -287,29 +286,56 @@ def _fill_calc_appendix5(wb, data):
     contract = str(data.get("investment_contract", ""))
     open_date = str(data.get("investment_open_date", ""))
 
-    # ИНН брокера (строка 090)
+    # 080 — признак основания: S28 = "1"
+    _safe_write(ws, "S28", "1")
+
+    # 090 — ИНН брокера: A31-J31
     if len(broker_inn) >= 10:
-        _write_number_field(ws, broker_inn, 1, 9)
+        _write_number_field(ws, broker_inn, 1, 31)
 
-    # Название брокера (строка 110)
+    # 110 — Наименование брокера: 3 строки A33-AN33, A35-AN35, A37-AN37
     if broker_name:
-        _safe_write(ws, "A11", broker_name)
+        lines = [broker_name[i:i+40] for i in range(0, len(broker_name), 40)]
+        for idx, line in enumerate(lines[:3]):
+            row = 33 + idx * 2
+            for col_idx, char in enumerate(line):
+                if col_idx >= 40: break
+                _safe_write(ws, f"{get_column_letter(col_idx + 1)}{row}", char)
 
-    # Дата договора (строка 120)
+    # 120 — дата договора: A39-B39 день, D39-E39 месяц, G39-J39 год
     if open_date and len(open_date) == 10:
-        _safe_write(ws, "A12", open_date)
+        _safe_write(ws, "A39", open_date[0])
+        _safe_write(ws, "B39", open_date[1])
+        _safe_write(ws, "D39", open_date[3])
+        _safe_write(ws, "E39", open_date[4])
+        _safe_write(ws, "G39", open_date[6])
+        _safe_write(ws, "H39", open_date[7])
+        _safe_write(ws, "I39", open_date[8])
+        _safe_write(ws, "J39", open_date[9])
 
-    # Номер договора (строка 130)
+    # 130 — номер договора: T39-AM39
     if contract:
-        _safe_write(ws, "A13", contract)
+        _write_number_field(ws, contract, 20, 39)
 
-    # Сумма взноса (строка 150)
-    _write_amount_with_kopeks(ws, inv_amount, 26, 15)
+    # 140 — дата открытия: T41-U41 день, W41-X41 месяц, Z41-AC41 год
+    if open_date and len(open_date) == 10:
+        _safe_write(ws, "T41", open_date[0])
+        _safe_write(ws, "U41", open_date[1])
+        _safe_write(ws, "W41", open_date[3])
+        _safe_write(ws, "X41", open_date[4])
+        _safe_write(ws, "Z41", open_date[6])
+        _safe_write(ws, "AA41", open_date[7])
+        _safe_write(ws, "AB41", open_date[8])
+        _safe_write(ws, "AC41", open_date[9])
 
-    # Признак основания (строка 080) — 1 (статья 219.1)
-    _safe_write(ws, "D8", "1")
+    # 150 — сумма взноса: A43-L43 рубли, N43-O43 копейки
+    amount_str = f"{inv_amount:.2f}"
+    parts = amount_str.split(".")
+    _write_number_field(ws, parts[0], 1, 43)
+    _safe_write(ws, "N43", parts[1][0])
+    _safe_write(ws, "O43", parts[1][1])
 
-    _safe_write(ws, "V47", datetime.now().strftime("%d.%m.%Y"), font_size=8)
+    _safe_write(ws, "V46", datetime.now().strftime("%d.%m.%Y"), font_size=8)
 
 
 def _fill_appendix7(wb, data):
