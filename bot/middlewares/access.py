@@ -39,11 +39,23 @@ class AccessMiddleware(BaseMiddleware):
                 session.commit()
                 session.refresh(user)
 
+                # Уведомление админам
+                bot = data.get("bot")
+                if bot:
+                    for admin_id in ADMIN_IDS:
+                        try:
+                            await bot.send_message(
+                                admin_id,
+                                f"🆕 Новый пользователь: @{user_tg.username or 'нет username'} "
+                                f"({user_tg.first_name or ''} {user_tg.last_name or ''})"
+                            )
+                        except Exception:
+                            pass
+
             if user.telegram_id in ADMIN_IDS:
                 user.access_type = ACCESS_UNLIMITED
                 session.commit()
 
-            # Проверка истечения monthly
             if user.access_type == ACCESS_MONTHLY and user.access_expires:
                 now = datetime.now(timezone.utc)
                 if user.access_expires.replace(tzinfo=timezone.utc) < now:
@@ -51,7 +63,6 @@ class AccessMiddleware(BaseMiddleware):
                     user.declarations_used = 0
                     session.commit()
 
-            # Проверка истечения test_14
             if user.access_type == ACCESS_TEST_14 and user.access_expires:
                 now = datetime.now(timezone.utc)
                 if user.access_expires.replace(tzinfo=timezone.utc) < now:
